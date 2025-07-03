@@ -19,7 +19,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeSection, setActiveSection }) =>
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: BarChart3 },
     { id: 'conversations', label: 'Conversas', icon: MessageSquare },
-    { id: 'ai-training', label: 'Treinamento A.I.', icon: Brain },
+    { id: 'ai-training', label: 'Treinamento I.A', icon: Brain },
     { id: 'whatsapp', label: 'Número WhatsApp', icon: Smartphone },
     { id: 'instagram', label: 'Instagram Direct', icon: Instagram },
     { id: 'settings', label: 'Configurações', icon: Settings },
@@ -32,8 +32,8 @@ const Sidebar: React.FC<SidebarProps> = ({ activeSection, setActiveSection }) =>
       <div className="p-6">
         <div className="flex items-center justify-center mb-8">
           <img 
-            src="/Attendos Logo.png" 
-            alt="Attendos AI" 
+            src="/atendoslogo.png" 
+            alt="Atendos IA" 
             className="h-8 w-auto"
           />
         </div>

@@ -13,7 +13,7 @@ const Support: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
-      content: 'Olá! Sou o assistente de suporte do Attendos AI. Como posso ajudá-lo hoje?',
+      content: 'Olá! Sou o assistente de suporte do Atendos IA. Como posso ajudá-lo hoje?',
       sender: 'assistant',
       timestamp: new Date(),
     }
@@ -199,7 +199,7 @@ const Support: React.FC = () => {
     setMessages([
       {
         id: '1',
-        content: 'Olá! Sou o assistente de suporte do Attendos AI. Como posso ajudá-lo hoje?',
+        content: 'Olá! Sou o assistente de suporte do Atendos IA. Como posso ajudá-lo hoje?',
         sender: 'assistant',
         timestamp: new Date(),
       }
@@ -232,7 +232,7 @@ const Support: React.FC = () => {
             <Bot className="w-6 h-6 text-white" />
           </div>
           <div>
-            <h1 className="text-lg font-semibold text-gray-900 dark:text-white">Suporte Attendos AI</h1>
+            <h1 className="text-lg font-semibold text-gray-900 dark:text-white">Suporte Atendos IA</h1>
             <p className="text-sm text-gray-500 dark:text-gray-400">
               {isTyping ? 'Digitando...' : isLoading ? 'Processando...' : 'Online'}
             </p>

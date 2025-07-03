@@ -52,12 +52,12 @@ const SignUpForm: React.FC<SignUpFormProps> = ({ onToggleMode }) => {
       <div className="max-w-md w-full space-y-8 p-8">
         <div className="text-center">
           <img 
-            src="/Attendos Logo.png" 
-            alt="Attendos AI" 
+            src="/atendoslogo.png" 
+            alt="Atendos IA" 
             className="h-12 w-auto mx-auto mb-6"
           />
           <h2 className="text-3xl font-bold text-gray-900">Crie sua conta</h2>
-          <p className="mt-2 text-gray-600">Comece a usar o Attendos AI hoje mesmo</p>
+          <p className="mt-2 text-gray-600">Comece a usar o Atendos IA hoje mesmo</p>
         </div>
 
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>

@@ -116,7 +116,7 @@ const InstagramDirect: React.FC = () => {
     
     try {
       await new Promise(resolve => setTimeout(resolve, 1500));
-      alert(`✅ Mensagem de teste enviada para ${testUsername}!\n\n"Olá! Este é um teste do Attendos AI para Instagram 📸"`);
+      alert(`✅ Mensagem de teste enviada para ${testUsername}!\n\n"Olá! Este é um teste do Atendos IA para Instagram 📸"`);
       setTestUsername('');
     } catch (error) {
       setError('Erro ao enviar mensagem de teste');
@@ -166,7 +166,7 @@ const InstagramDirect: React.FC = () => {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold text-gray-900">Instagram Direct Messages</h1>
+        <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Instagram Direct Messages</h1>
         <div className="flex space-x-3">
           <button 
             onClick={() => setShowSetupModal(true)}
@@ -198,12 +198,12 @@ const InstagramDirect: React.FC = () => {
 
       {/* Connection Progress */}
       {loading && connectionStep > 0 && (
-        <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+        <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg p-4">
           <div className="flex items-center space-x-3">
             <Loader2 className="w-5 h-5 animate-spin text-purple-600" />
             <div className="flex-1">
-              <p className="text-purple-800 font-medium">{getConnectionStepText()}</p>
-              <div className="w-full bg-purple-200 rounded-full h-2 mt-2">
+              <p className="text-purple-800 dark:text-purple-300 font-medium">{getConnectionStepText()}</p>
+              <div className="w-full bg-purple-200 dark:bg-purple-800 rounded-full h-2 mt-2">
                 <div 
                   className="bg-purple-600 h-2 rounded-full transition-all duration-500"
                   style={{ width: `${(connectionStep / 4) * 100}%` }}
@@ -216,13 +216,13 @@ const InstagramDirect: React.FC = () => {
 
       {/* Error Display */}
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
           <div className="flex items-center space-x-2">
-            <AlertCircle className="w-5 h-5 text-red-600" />
-            <p className="text-red-700 flex-1">{error}</p>
+            <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400" />
+            <p className="text-red-700 dark:text-red-300 flex-1">{error}</p>
             <button 
               onClick={() => setError(null)}
-              className="text-red-600 hover:text-red-800 text-xl font-bold"
+              className="text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300 text-xl font-bold"
             >
               ×
             </button>
@@ -232,29 +232,29 @@ const InstagramDirect: React.FC = () => {
 
       {/* Status Overview */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow">
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-600">Status da Conexão</p>
-              <p className="text-2xl font-bold text-gray-900 mt-1">
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Status da Conexão</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">
                 {instagramStatus ? getStatusText(instagramStatus.status) : 'Carregando...'}
               </p>
               {instagramStatus?.username && (
-                <p className="text-sm text-gray-600 mt-2">{instagramStatus.username}</p>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mt-2">{instagramStatus.username}</p>
               )}
             </div>
-            <div className={`w-12 h-12 ${instagramStatus ? getStatusBg(instagramStatus.status) : 'bg-gray-100'} rounded-lg flex items-center justify-center`}>
-              <Instagram className={`w-6 h-6 ${instagramStatus ? getStatusColor(instagramStatus.status) : 'text-gray-400'}`} />
+            <div className={`w-12 h-12 ${instagramStatus ? getStatusBg(instagramStatus.status) : 'bg-gray-100 dark:bg-gray-700'} rounded-lg flex items-center justify-center`}>
+              <Instagram className={`w-6 h-6 ${instagramStatus ? getStatusColor(instagramStatus.status) : 'text-gray-400 dark:text-gray-500'}`} />
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow">
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-600">DMs Hoje</p>
-              <p className="text-2xl font-bold text-gray-900 mt-1">127</p>
-              <p className="text-sm text-green-600 font-medium mt-2">+18% vs ontem</p>
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">DMs Hoje</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">127</p>
+              <p className="text-sm text-green-600 dark:text-green-400 font-medium mt-2">+18% vs ontem</p>
             </div>
             <div className="w-12 h-12 bg-gradient-to-r from-purple-500 to-pink-500 rounded-lg flex items-center justify-center">
               <CheckCircle className="w-6 h-6 text-white" />
@@ -262,12 +262,12 @@ const InstagramDirect: React.FC = () => {
           </div>
         </div>
 
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow">
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-600">Taxa de Resposta</p>
-              <p className="text-2xl font-bold text-gray-900 mt-1">96.3%</p>
-              <p className="text-sm text-green-600 font-medium mt-2">+1.2% esta semana</p>
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Taxa de Resposta</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">96.3%</p>
+              <p className="text-sm text-green-600 dark:text-green-400 font-medium mt-2">+1.2% esta semana</p>
             </div>
             <div className="w-12 h-12 bg-orange-500 rounded-lg flex items-center justify-center">
               <AlertCircle className="w-6 h-6 text-white" />
@@ -277,15 +277,15 @@ const InstagramDirect: React.FC = () => {
       </div>
 
       {/* Test Message Section */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Teste de Envio de DM</h3>
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Teste de Envio de DM</h3>
         <div className="flex space-x-3">
           <input
             type="text"
             placeholder="Digite o username (ex: @usuario)"
             value={testUsername}
             onChange={(e) => setTestUsername(e.target.value)}
-            className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+            className="flex-1 px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
           />
           <button
             onClick={handleTestMessage}
@@ -301,118 +301,53 @@ const InstagramDirect: React.FC = () => {
           </button>
         </div>
         {instagramStatus?.status !== 'connected' && (
-          <p className="text-sm text-gray-500 mt-2">
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
             ⚠️ Conecte o Instagram primeiro para enviar mensagens de teste
           </p>
         )}
       </div>
 
-      {/* Accounts List */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200">
-        <div className="p-6 border-b border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-900">Contas Configuradas</h2>
-        </div>
-
-        <div className="divide-y divide-gray-200">
-          {mockInstagramAccounts.map((account) => (
-            <div key={account.id} className="p-6 hover:bg-gray-50 transition-colors">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-4">
-                  <div className="w-12 h-12 bg-gradient-to-r from-purple-100 to-pink-100 rounded-lg flex items-center justify-center">
-                    <Instagram className="w-6 h-6 text-purple-600" />
-                  </div>
-                  
-                  <div>
-                    <h3 className="font-medium text-gray-900">{account.name}</h3>
-                    <p className="text-sm text-gray-600">{account.username}</p>
-                    <p className="text-xs text-gray-500 mt-1">
-                      {account.followers} seguidores • Última atividade: {account.lastActivity}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center space-x-6">
-                  <div className="text-center">
-                    <p className="text-sm font-medium text-gray-900">{account.messages}</p>
-                    <p className="text-xs text-gray-500">DMs</p>
-                  </div>
-                  
-                  <div className="flex items-center space-x-2">
-                    {account.status === 'connected' ? (
-                      <CheckCircle className="w-5 h-5 text-green-600" />
-                    ) : (
-                      <AlertCircle className="w-5 h-5 text-red-600" />
-                    )}
-                    <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                      account.status === 'connected' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                    }`}>
-                      {account.status === 'connected' ? 'Conectado' : 'Desconectado'}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center space-x-2">
-                    <button className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
-                      <Settings className="w-5 h-5" />
-                    </button>
-                    <button className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
-                      <MoreVertical className="w-5 h-5" />
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-4 pl-16">
-                <div className="bg-gray-50 rounded-lg p-3">
-                  <p className="text-sm text-gray-600 mb-1">Webhook URL:</p>
-                  <code className="text-xs text-purple-600 bg-purple-50 px-2 py-1 rounded">
-                    {account.webhook}
-                  </code>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
+  
 
       {/* Setup Modal */}
       {showSetupModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl p-8 max-w-lg w-full mx-4 transform transition-all">
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-8 max-w-lg w-full mx-4 transform transition-all">
             <div className="text-center">
               <div className="w-16 h-16 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center mx-auto mb-4">
                 <Instagram className="w-8 h-8 text-white" />
               </div>
               
-              <h3 className="text-xl font-semibold text-gray-900 mb-4">
+              <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
                 Conectar Instagram Business
               </h3>
-              <p className="text-gray-600 mb-6">
+              <p className="text-gray-600 dark:text-gray-400 mb-6">
                 Para conectar o Instagram, você precisa configurar uma aplicação no Meta for Developers
               </p>
               
-              <div className="text-left bg-gray-50 rounded-lg p-4 mb-6 space-y-3">
+              <div className="text-left bg-gray-50 dark:bg-gray-700 rounded-lg p-4 mb-6 space-y-3">
                 <div className="flex items-center space-x-2">
                   <span className="w-6 h-6 bg-purple-600 text-white rounded-full flex items-center justify-center text-xs font-bold">1</span>
-                  <span className="text-sm">Acesse o Meta for Developers</span>
+                  <span className="text-sm text-gray-700 dark:text-gray-300">Acesse o Meta for Developers</span>
                 </div>
                 <div className="flex items-center space-x-2">
                   <span className="w-6 h-6 bg-purple-600 text-white rounded-full flex items-center justify-center text-xs font-bold">2</span>
-                  <span className="text-sm">Crie uma aplicação Business</span>
+                  <span className="text-sm text-gray-700 dark:text-gray-300">Crie uma aplicação Business</span>
                 </div>
                 <div className="flex items-center space-x-2">
                   <span className="w-6 h-6 bg-purple-600 text-white rounded-full flex items-center justify-center text-xs font-bold">3</span>
-                  <span className="text-sm">Configure Instagram Basic Display API</span>
+                  <span className="text-sm text-gray-700 dark:text-gray-300">Configure Instagram Basic Display API</span>
                 </div>
                 <div className="flex items-center space-x-2">
                   <span className="w-6 h-6 bg-purple-600 text-white rounded-full flex items-center justify-center text-xs font-bold">4</span>
-                  <span className="text-sm">Adicione as credenciais no sistema</span>
+                  <span className="text-sm text-gray-700 dark:text-gray-300">Adicione as credenciais no sistema</span>
                 </div>
               </div>
               
               <div className="flex space-x-3">
                 <button
                   onClick={() => setShowSetupModal(false)}
-                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                  className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                 >
                   Fechar
                 </button>
@@ -430,33 +365,32 @@ const InstagramDirect: React.FC = () => {
       )}
 
       {/* Instructions */}
-      <div className="bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200 rounded-xl p-6">
+      <div className="bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 border border-purple-200 dark:border-purple-800 rounded-xl p-6">
         <div className="flex items-start space-x-3">
-          <Instagram className="w-6 h-6 text-purple-600 mt-0.5" />
+          <Instagram className="w-6 h-6 text-purple-600 dark:text-purple-400 mt-0.5" />
           <div>
-            <h3 className="font-medium text-purple-800 mb-2">Como conectar seu Instagram Business</h3>
-            <div className="text-sm text-purple-700 space-y-2">
+            <h3 className="font-medium text-purple-800 dark:text-purple-300 mb-2">Como conectar seu Instagram Business</h3>
+            <div className="text-sm text-purple-700 dark:text-purple-400 space-y-2">
               <div className="flex items-center space-x-2">
                 <span className="w-6 h-6 bg-purple-600 text-white rounded-full flex items-center justify-center text-xs font-bold">1</span>
-                <span>Configure uma aplicação no Meta for Developers</span>
+                <span>Clique em conectar conta</span>
               </div>
               <div className="flex items-center space-x-2">
                 <span className="w-6 h-6 bg-purple-600 text-white rounded-full flex items-center justify-center text-xs font-bold">2</span>
-                <span>Ative o Instagram Basic Display API</span>
+                <span>Certifique de ter uma conta comercial</span>
               </div>
               <div className="flex items-center space-x-2">
                 <span className="w-6 h-6 bg-purple-600 text-white rounded-full flex items-center justify-center text-xs font-bold">3</span>
-                <span>Configure os webhooks para receber mensagens</span>
+                <span>Defina o prompt em Treinamento I.A</span>
               </div>
               <div className="flex items-center space-x-2">
                 <span className="w-6 h-6 bg-purple-600 text-white rounded-full flex items-center justify-center text-xs font-bold">4</span>
-                <span>Autorize a aplicação na sua conta Instagram Business</span>
+                <span>Faça os primeiros testes de envio de mensagens!</span>
               </div>
             </div>
-            <div className="mt-4 p-3 bg-purple-100 rounded-lg">
-              <p className="text-sm text-purple-800">
-                <strong>📝 Nota:</strong> Para funcionar completamente, você precisa de uma conta Instagram Business 
-                e configurar a integração com a Meta Graph API. Esta é uma demonstração da interface!
+            <div className="mt-4 p-3 bg-purple-100 dark:bg-purple-900/30 rounded-lg">
+              <p className="text-sm text-purple-800 dark:text-purple-300">
+                <strong>📝 Nota:</strong> Todas as conversas são cryptografadas.
               </p>
             </div>
           </div>

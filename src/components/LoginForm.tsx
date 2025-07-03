@@ -37,11 +37,11 @@ const LoginForm: React.FC<LoginFormProps> = ({ onToggleMode }) => {
       <div className="max-w-md w-full space-y-8 p-8">
         <div className="text-center">
           <img 
-            src="/Attendos Logo.png" 
-            alt="Attendos AI" 
+            src="/atendoslogo.png" 
+            alt="Atendos IA" 
             className="h-12 w-auto mx-auto mb-6"
           />
-          <h2 className="text-3xl font-bold text-gray-900">Bem-vindo de volta</h2>
+          <h2 className="text-3xl font-bold text-gray-900">Você é sempre Bem-vindo!</h2>
           <p className="mt-2 text-gray-600">Entre na sua conta para continuar</p>
         </div>
 

@@ -1,7 +1,7 @@
 {
   "name": "attendos-backend",
   "version": "1.0.0",
-  "description": "Backend para Attendos AI - WhatsApp Business Automation",
+  "description": "Backend para Atendos IA - WhatsApp Business Automation",
   "main": "dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
@@ -55,6 +55,6 @@
     "mongodb",
     "fastify"
   ],
-  "author": "Attendos AI",
+  "author": "Atendos IA",
   "license": "MIT"
 }

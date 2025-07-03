@@ -54,6 +54,14 @@ export interface ChatMetadata {
   }>;
 }
 
+export interface DeviceInfo {
+  connected: boolean;
+  phone?: string;
+  name?: string;
+  id?: string;
+  status?: string;
+}
+
 export class ZAPIService {
   private config: ZAPIConfig;
   private baseURL: string;
@@ -62,7 +70,7 @@ export class ZAPIService {
     this.config = {
       instanceId: import.meta.env.VITE_ZAPI_INSTANCE_ID || '3E34EADF8CD1007B145E2A88B4975A95',
       token: import.meta.env.VITE_ZAPI_TOKEN || '7C19DEAA164FD4EF8312E717',
-      clientToken: 'F11caf4052f99463985f532794820b07dS', // Client-Token fixo conforme documentação
+      clientToken: 'F4a554efd9a4b4e51903dda0db517ffcaS', // Client-Token fixo conforme documentação
       webhookUrl: import.meta.env.VITE_N8N_WEBHOOK_URL,
     };
 
@@ -134,6 +142,16 @@ export class ZAPIService {
           errorMessage
         });
 
+        // Verificar se o erro é "You need to be connected" - isso é esperado quando não está conectado
+        if (errorMessage.includes('You need to be connected')) {
+          console.log('ℹ️ Device not connected yet - this is expected before QR scan');
+          return {
+            success: false,
+            error: 'Dispositivo não conectado. Escaneie o QR Code para conectar.',
+            data: { connected: false }
+          };
+        }
+
         return {
           success: false,
           error: `Z-API Error (${response.status}): ${errorMessage}`,
@@ -141,18 +159,43 @@ export class ZAPIService {
         };
       }
 
-      // Verificar se há erro no JSON mesmo com status 200
-      // SPECIAL CASE: Para o endpoint /status, "You are already connected" com connected=true é um sucesso
-      if (endpoint === '/status' && data.error === 'You are already connected.' && data.connected === true) {
-        console.log('✅ Z-API Status: Already connected (treating as success)');
+      // Para o endpoint /status, sempre tratar resposta 200 como sucesso
+      // O campo "error" na resposta é apenas informativo sobre o status da conexão
+      if (endpoint === '/status' && response.ok) {
+        console.log('✅ Z-API Status response received successfully');
+        
+        // Verificar múltiplas formas de indicar conexão
+        const isConnected = data.connected === true || 
+                           data.status === 'CONNECTED' ||
+                           data.status === 'connected' ||
+                           (data.error && (
+                             data.error.includes('already connected') ||
+                             data.error.includes('You are already connected') ||
+                             data.error.includes('connected')
+                           ));
+        
+        if (isConnected) {
+          console.log('✅ Status indicates device is connected');
+          return {
+            success: true,
+            data: {
+              ...data,
+              connected: true,
+              status: 'CONNECTED'
+            },
+            message: 'Status retrieved successfully - device is connected'
+          };
+        }
+        
         return {
           success: true,
           data,
-          message: 'Already connected'
+          message: data.message || 'Status retrieved successfully'
         };
       }
 
-      if (data.error || (data.message && data.message.includes('Unable to find'))) {
+      // Para outros endpoints, verificar se há erro no JSON mesmo com status 200
+      if (data.error && !endpoint.includes('/status')) {
         console.error('❌ Z-API returned error in response body:', {
           status: response.status,
           url: url,
@@ -199,6 +242,25 @@ export class ZAPIService {
         const errorText = await response.text();
         console.error(`❌ Z-API QR Code Error (${endpoint}):`, response.status, errorText);
         
+        // Check if the error indicates the instance is already connected
+        if (response.status === 400 || response.status === 409) {
+          try {
+            const errorData = JSON.parse(errorText);
+            if (errorData.connected === true || errorText.includes('already connected')) {
+              console.log('✅ Instance already connected - no QR code needed');
+              return {
+                success: true,
+                data: {
+                  alreadyConnected: true,
+                  message: 'WhatsApp já está conectado'
+                }
+              };
+            }
+          } catch (parseError) {
+            // If we can't parse the error, continue with normal error handling
+          }
+        }
+        
         return {
           success: false,
           error: `Z-API Error (${response.status}): ${errorText || response.statusText}`,
@@ -236,6 +298,18 @@ export class ZAPIService {
       try {
         data = responseText ? JSON.parse(responseText) : {};
         console.log('📋 Parsed as JSON successfully');
+        
+        // Check if the response indicates the instance is already connected
+        if (data.connected === true) {
+          console.log('✅ Instance already connected - no QR code needed');
+          return {
+            success: true,
+            data: {
+              alreadyConnected: true,
+              message: 'WhatsApp já está conectado'
+            }
+          };
+        }
       } catch (parseError) {
         console.log('📝 Response is not JSON, treating as raw data');
         
@@ -307,68 +381,51 @@ export class ZAPIService {
 
   // ========== MÉTODOS DE CONEXÃO ==========
 
-  // Obter informações da instância usando endpoint /device
-  async getDeviceInfo(): Promise<ZAPIResponse> {
+  // Obter QR Code para conexão - MÉTODO PRINCIPAL CONFORME SOLICITADO
+  async getQRCode(): Promise<ZAPIResponse> {
     try {
-      console.log('🔄 Getting device info via /device endpoint...');
+      console.log('🔄 Getting QR Code from Z-API via /qr-code/image endpoint...');
       
-      const result = await this.makeRequest('/device', {
+      // Remover verificação de status antes de gerar QR Code
+      // O QR Code deve ser gerado independentemente do status atual
+      const result = await this.makeRequest('/qr-code/image', {
         method: 'GET',
       });
 
       if (result.success) {
-        console.log('✅ Device info retrieved:', result.data);
-      } else {
-        console.error('❌ Failed to get device info:', result.error);
-      }
-
-      return result;
-    } catch (error) {
-      console.error('❌ Error getting device info:', error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Erro ao obter informações do device'
-      };
-    }
-  }
-
-  // Obter QR Code - Método principal que tenta ambos os endpoints
-  async getQRCode(): Promise<ZAPIResponse> {
-    try {
-      console.log('🔄 Getting QR Code from Z-API...');
-      
-      // Primeiro tentar o endpoint /qr-code/image (retorna base64)
-      console.log('📸 Trying /qr-code/image endpoint first...');
-      let result = await this.makeRequest('/qr-code/image', {
-        method: 'GET',
-      });
-
-      if (result.success && result.data?.qrCode) {
-        console.log('✅ QR Code obtained successfully from /qr-code/image');
-        return result;
-      }
-
-      console.log('⚠️ /qr-code/image failed, trying /qr-code endpoint...');
-      
-      // Se falhar, tentar o endpoint /qr-code (retorna bytes)
-      result = await this.makeRequest('/qr-code', {
-        method: 'GET',
-      });
-
-      if (result.success && result.data?.qrCode) {
-        console.log('✅ QR Code obtained successfully from /qr-code');
-        return result;
-      }
-
-      console.error('❌ Both QR Code endpoints failed');
-      return {
-        success: false,
-        error: 'Falha ao obter QR Code de ambos os endpoints (/qr-code/image e /qr-code)',
-        data: {
-          imageEndpointError: result.error,
-          bytesEndpointError: result.error
+        if (result.data?.alreadyConnected) {
+          console.log('✅ Instance already connected - no QR code needed');
+          return result;
+        } else if (result.data?.qrCode) {
+          console.log('✅ QR Code obtained successfully from /qr-code/image');
+          return result;
+        } else {
+          console.error('❌ Unexpected response format:', result.data);
+          return {
+            success: false,
+            error: 'Formato de resposta inesperado do endpoint /qr-code/image'
+          };
         }
-      };
+      } else {
+        // Se o erro indicar que já está conectado, retornar sucesso
+        if (result.error && (
+            result.error.includes('already connected') || 
+            (result.data && result.data.connected === true)
+        )) {
+          console.log('✅ Error indicates instance is already connected');
+          return {
+            success: true,
+            data: {
+              alreadyConnected: true,
+              message: 'WhatsApp já está conectado',
+              originalError: result.error
+            }
+          };
+        }
+        
+        console.error('❌ Failed to get QR Code:', result.error);
+        return result;
+      }
     } catch (error) {
       console.error('❌ Error getting QR Code:', error);
       return {
@@ -378,57 +435,78 @@ export class ZAPIService {
     }
   }
 
-  // Obter QR Code como imagem base64 (endpoint específico)
-  async getQRCodeImage(): Promise<ZAPIResponse> {
+  // Obter informações do dispositivo após conexão - MÉTODO PRINCIPAL CONFORME SOLICITADO
+  async getDeviceInfo(): Promise<ZAPIResponse> {
     try {
-      console.log('📸 Getting QR Code image (base64) from /qr-code/image...');
+      console.log('🔄 Getting device info via /device endpoint...');
       
-      const result = await this.makeRequest('/qr-code/image', {
+      const result = await this.makeRequest('/device', {
         method: 'GET',
       });
 
-      if (result.success) {
-        console.log('✅ QR Code image obtained successfully');
+      if (result.success && result.data) {
+        console.log('✅ Device info retrieved:', result.data);
+        
+        // Normalizar resposta do device
+        const deviceData = result.data;
+        const isConnected = deviceData?.connected === true || 
+                           deviceData?.status === 'CONNECTED' || 
+                           deviceData?.status === 'connected';
+        
+        const normalizedData: DeviceInfo = {
+          connected: isConnected,
+          phone: deviceData?.phone || deviceData?.phoneNumber || null,
+          name: deviceData?.name || deviceData?.displayName || null,
+          id: deviceData?.id || null,
+          status: isConnected ? 'CONNECTED' : 'DISCONNECTED'
+        };
+        
+        return {
+          success: true,
+          data: normalizedData
+        };
       } else {
-        console.error('❌ Failed to get QR Code image:', result.error);
+        // Se o erro for "You need to be connected", isso é esperado antes da conexão
+        if (result.error && result.error.includes('You need to be connected')) {
+          console.log('ℹ️ Device not connected yet - this is expected before QR scan');
+          return {
+            success: false,
+            error: null, // Não retornar erro para não mostrar na UI
+            data: { 
+              connected: false,
+              status: 'DISCONNECTED',
+              waitingForQrScan: true
+            }
+          };
+        }
+        
+        console.error('❌ Failed to get device info:', result.error);
+        return result;
       }
-
-      return result;
     } catch (error) {
-      console.error('❌ Error getting QR Code image:', error);
+      console.error('❌ Error getting device info:', error);
+      
+      // Se o erro for "You need to be connected", não é um erro real
+      if (error instanceof Error && error.message.includes('You need to be connected')) {
+        return {
+          success: false,
+          error: null, // Não retornar erro para não mostrar na UI
+          data: { 
+            connected: false,
+            status: 'DISCONNECTED',
+            waitingForQrScan: true
+          }
+        };
+      }
+      
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Erro ao obter QR Code como imagem'
+        error: error instanceof Error ? error.message : 'Erro ao obter informações do device'
       };
     }
   }
 
-  // Obter QR Code como bytes (endpoint específico)
-  async getQRCodeBytes(): Promise<ZAPIResponse> {
-    try {
-      console.log('📦 Getting QR Code bytes from /qr-code...');
-      
-      const result = await this.makeRequest('/qr-code', {
-        method: 'GET',
-      });
-
-      if (result.success) {
-        console.log('✅ QR Code bytes obtained successfully');
-      } else {
-        console.error('❌ Failed to get QR Code bytes:', result.error);
-      }
-
-      return result;
-    } catch (error) {
-      console.error('❌ Error getting QR Code bytes:', error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Erro ao obter QR Code como bytes'
-      };
-    }
-  }
-
-  // Verificar status da conexão - MÉTODO PRINCIPAL PARA CONFIRMAR CONEXÃO
+  // Verificar status da conexão - MÉTODO PRINCIPAL PARA MONITORAMENTO
   async getConnectionStatus(): Promise<ZAPIResponse> {
     try {
       console.log('🔄 Checking Z-API connection status via /status...');
@@ -440,10 +518,15 @@ export class ZAPIService {
       if (result.success) {
         const statusData = result.data;
         
-        // Normalizar resposta do status
+        // Normalizar resposta do status - VERIFICAÇÃO MAIS ROBUSTA
         const isConnected = statusData?.connected === true || 
                            statusData?.status === 'CONNECTED' || 
-                           statusData?.status === 'connected';
+                           statusData?.status === 'connected' ||
+                           (statusData?.error && (
+                             statusData.error.includes('already connected') ||
+                             statusData.error.includes('You are already connected') ||
+                             statusData.error.includes('connected')
+                           ));
         
         const normalizedData = {
           connected: isConnected,
@@ -469,6 +552,26 @@ export class ZAPIService {
         success: false,
         error: error instanceof Error ? error.message : 'Erro ao verificar status'
       };
+    }
+  }
+
+  // Método específico para verificar se está conectado (mais direto)
+  async isConnected(): Promise<boolean> {
+    try {
+      console.log('🔍 Quick connection check...');
+      
+      const result = await this.getConnectionStatus();
+      
+      if (result.success && result.data) {
+        const connected = result.data.connected === true;
+        console.log(`📊 Quick check result: ${connected ? 'CONNECTED' : 'DISCONNECTED'}`);
+        return connected;
+      }
+      
+      return false;
+    } catch (error) {
+      console.error('❌ Error in quick connection check:', error);
+      return false;
     }
   }
 
@@ -806,18 +909,7 @@ export class ZAPIService {
     try {
       console.log('🔄 Initiating Z-API connection by requesting QR Code...');
       
-      // Primeiro verificar se já está conectado usando /status
-      const statusResult = await this.getConnectionStatus();
-      if (statusResult.success && statusResult.data?.connected) {
-        console.log('✅ Instance already connected');
-        return {
-          success: true,
-          data: { message: 'Instance already connected', ...statusResult.data }
-        };
-      }
-
       // A conexão é iniciada automaticamente ao solicitar o QR Code
-      // Não existe endpoint /start na documentação da Z-API
       const qrResult = await this.getQRCode();
       
       if (qrResult.success) {

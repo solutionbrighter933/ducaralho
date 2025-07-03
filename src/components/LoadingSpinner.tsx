@@ -11,8 +11,8 @@ const LoadingSpinner: React.FC<LoadingSpinnerProps> = ({ error }) => {
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 via-white to-purple-50">
         <div className="text-center max-w-lg mx-auto p-6">
           <img 
-            src="/Attendos Logo.png" 
-            alt="Attendos AI" 
+            src="/atendoslogo.png" 
+            alt="Atendos IA" 
             className="h-12 w-auto mx-auto mb-6"
           />
           <div className="bg-red-50 border border-red-200 rounded-xl p-6 mb-6">
@@ -56,15 +56,15 @@ const LoadingSpinner: React.FC<LoadingSpinnerProps> = ({ error }) => {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 via-white to-purple-50">
       <div className="text-center">
         <img 
-          src="/Attendos Logo.png" 
-          alt="Attendos AI" 
+          src="/atendoslogo.png" 
+          alt="Atendos IA" 
           className="h-12 w-auto mx-auto mb-6"
         />
         <div className="relative">
           <Loader2 className="w-12 h-12 animate-spin mx-auto text-indigo-600" />
           <div className="absolute inset-0 w-12 h-12 border-2 border-indigo-200 rounded-full mx-auto"></div>
         </div>
-        <p className="mt-6 text-lg text-gray-700 font-medium">Carregando Attendos AI...</p>
+        <p className="mt-6 text-lg text-gray-700 font-medium">Carregando Atendos IA...</p>
         
         <div className="mt-6 max-w-md mx-auto">
           <div className="bg-white/50 backdrop-blur-sm rounded-lg p-4 border border-gray-200">

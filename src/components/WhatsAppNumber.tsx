@@ -9,23 +9,26 @@ const WhatsAppNumber: React.FC = () => {
     loading: supabaseLoading,
     error: supabaseError,
     isConnected,
-    checkInstanceStatus, // MÉTODO PRINCIPAL: usar /status
+    checkInstanceStatus, // MÉTODO PRINCIPAL: usar /status para obter número de telefone
     connectWhatsApp, // FLUXO CORRETO: QR CODE PRIMEIRO!
     sendTestMessage,
     handleDisconnect,
-    profile
+    profile,
+    authLoading
   } = useWhatsAppConnection();
 
   const [showQRModal, setShowQRModal] = useState(false);
   const [qrCodeImage, setQrCodeImage] = useState<string>('');
   const [testPhone, setTestPhone] = useState('');
-  const [testMessage, setTestMessage] = useState('Olá! Este é um teste do Attendos AI 🤖');
+  const [testMessage, setTestMessage] = useState('Olá! Este é um teste do Atendos IA 🤖');
   const [testLoading, setTestLoading] = useState(false);
   const [connectionLoading, setConnectionLoading] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<string>('DISCONNECTED');
   const [instanceInfo, setInstanceInfo] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [monitoringActive, setMonitoringActive] = useState(false);
+  const [monitoringInterval, setMonitoringInterval] = useState<NodeJS.Timeout | null>(null);
 
   // Verificar se a Z-API está configurada
   const isZAPIConfigured = zapiService.isConfigured();
@@ -36,6 +39,15 @@ const WhatsAppNumber: React.FC = () => {
       setConnectionStatus(whatsappNumber.connection_status);
     }
   }, [whatsappNumber]);
+
+  // Limpar o intervalo de monitoramento quando o componente for desmontado
+  useEffect(() => {
+    return () => {
+      if (monitoringInterval) {
+        clearInterval(monitoringInterval);
+      }
+    };
+  }, [monitoringInterval]);
 
   // FLUXO CORRETO: Conectar número - QR CODE PRIMEIRO!
   const handleConnectNumber = async () => {
@@ -54,48 +66,83 @@ const WhatsAppNumber: React.FC = () => {
       setError(null);
       setSuccess(null);
       setQrCodeImage('');
+      setMonitoringActive(false);
+      
+      // Limpar qualquer intervalo de monitoramento anterior
+      if (monitoringInterval) {
+        clearInterval(monitoringInterval);
+        setMonitoringInterval(null);
+      }
 
       console.log('🔄 FLUXO CORRETO: Gerando QR Code primeiro...');
 
-      // PASSO 1: Gerar QR Code DIRETAMENTE (sem verificar status antes)
+      // PASSO 1: Obter QR Code DIRETAMENTE (sem verificar status antes)
       const result = await connectWhatsApp();
       
-      if (result.success && result.qrCode) {
-        setQrCodeImage(result.qrCode);
-        setShowQRModal(true);
-        setSuccess('QR Code gerado com sucesso! Escaneie com seu WhatsApp.');
-        
-        // PASSO 2: Verificar status periodicamente APÓS mostrar QR Code usando /status
-        console.log('⏰ Starting connection monitoring via /status endpoint...');
-        const statusInterval = setInterval(async () => {
-          try {
-            console.log('🔍 Checking if WhatsApp connected via /status...');
-            const statusResult = await checkInstanceStatus();
-            
-            if (statusResult && statusResult.connected) {
-              console.log('✅ WhatsApp connected successfully!');
-              setShowQRModal(false);
-              setConnectionStatus('CONNECTED');
-              setInstanceInfo(statusResult.data);
-              setSuccess('WhatsApp conectado e salvo no Supabase com sucesso!');
-              clearInterval(statusInterval);
-              
-              // Limpar mensagem de sucesso após 5 segundos
-              setTimeout(() => setSuccess(null), 5000);
-            }
-          } catch (err) {
-            console.log('ℹ️ Still waiting for connection...', err);
-            // Não mostrar erro aqui, é normal enquanto aguarda conexão
-          }
-        }, 3000); // Verificar a cada 3 segundos
+      if (result.success) {
+        // Check if already connected
+        if (result.alreadyConnected) {
+          setConnectionStatus('CONNECTED');
+          setSuccess('WhatsApp já está conectado!');
+          setTimeout(() => setSuccess(null), 5000);
+          
+          // Verificar status para obter informações atualizadas
+          await handleCheckInstanceStatus();
+          return;
+        }
 
-        // Limpar interval após 2 minutos
-        setTimeout(() => {
-          clearInterval(statusInterval);
-          console.log('⏰ Connection monitoring timeout');
-        }, 120000);
+        // If QR Code was generated
+        if (result.qrCode) {
+          setQrCodeImage(result.qrCode);
+          setShowQRModal(true);
+          setSuccess('QR Code gerado com sucesso! Escaneie com seu WhatsApp.');
+          
+          // PASSO 2: Verificar status periodicamente APÓS mostrar QR Code
+          console.log('⏰ Starting aggressive connection monitoring...');
+          setMonitoringActive(true);
+          
+          const interval = setInterval(async () => {
+            try {
+              console.log('🔍 Checking connection status...');
+              
+              // Usar método mais direto para verificar conexão
+              const isConnectedNow = await zapiService.isConnected();
+              
+              if (isConnectedNow) {
+                console.log('✅ WhatsApp connected successfully detected!');
+                setShowQRModal(false);
+                setConnectionStatus('CONNECTED');
+                setSuccess('WhatsApp conectado com sucesso!');
+                setMonitoringActive(false);
+                clearInterval(interval);
+                setMonitoringInterval(null);
+                
+                // Obter informações detalhadas da conexão
+                await handleCheckInstanceStatus();
+                
+                // Limpar mensagem de sucesso após 5 segundos
+                setTimeout(() => setSuccess(null), 5000);
+              }
+            } catch (err) {
+              console.log('ℹ️ Still waiting for connection...', err);
+              // Não mostrar erro aqui, é normal enquanto aguarda conexão
+            }
+          }, 2000); // Verificar a cada 2 segundos (mais agressivo)
+          
+          setMonitoringInterval(interval);
+
+          // Limpar interval após 3 minutos
+          setTimeout(() => {
+            clearInterval(interval);
+            setMonitoringInterval(null);
+            setMonitoringActive(false);
+            console.log('⏰ Connection monitoring timeout');
+          }, 180000); // 3 minutos
+        } else {
+          throw new Error('Resposta inesperada: nem QR Code nem conexão existente');
+        }
       } else {
-        throw new Error(result.error || 'Falha ao gerar QR Code');
+        throw new Error(result.error || 'Falha ao conectar WhatsApp');
       }
     } catch (err) {
       console.error('❌ Error in connection flow:', err);
@@ -133,25 +180,6 @@ const WhatsAppNumber: React.FC = () => {
     } catch (err) {
       console.error('Error checking instance status:', err);
       setError(err instanceof Error ? err.message : 'Erro ao verificar status da instância');
-    }
-  };
-
-  // Função para buscar QR Code via Z-API (para refresh manual)
-  const fetchQRCode = async () => {
-    try {
-      console.log('🔄 Fetching QR Code via Z-API...');
-      
-      const result = await zapiService.getQRCode();
-      
-      if (result.success && result.data?.qrCode) {
-        setQrCodeImage(result.data.qrCode);
-        console.log('✅ QR Code image updated successfully');
-      } else {
-        throw new Error(result.error || 'QR Code não encontrado na resposta');
-      }
-    } catch (err) {
-      console.error('❌ Error fetching QR Code:', err);
-      setError(err instanceof Error ? err.message : 'Erro ao buscar QR Code');
     }
   };
 
@@ -202,7 +230,7 @@ const WhatsAppNumber: React.FC = () => {
       if (result.success) {
         setConnectionStatus('DISCONNECTED');
         setInstanceInfo(null);
-        setSuccess('WhatsApp desconectado e atualizado no Supabase com sucesso!');
+        setSuccess('WhatsApp desconectado com sucesso!');
         setTimeout(() => setSuccess(null), 3000);
       } else {
         throw new Error(result.error || 'Falha ao desconectar');
@@ -216,9 +244,29 @@ const WhatsAppNumber: React.FC = () => {
   };
 
   // Função para atualizar QR Code manualmente
-  const handleRefreshQRCode = () => {
-    console.log('🔄 Manual QR Code refresh requested...');
-    fetchQRCode();
+  const handleRefreshQRCode = async () => {
+    try {
+      console.log('🔄 Manual QR Code refresh requested...');
+      
+      const result = await zapiService.getQRCode();
+      
+      if (result.success && result.data?.qrCode) {
+        setQrCodeImage(result.data.qrCode);
+        console.log('✅ QR Code image updated successfully');
+      } else if (result.success && result.data?.alreadyConnected) {
+        setShowQRModal(false);
+        setSuccess('WhatsApp já está conectado!');
+        setTimeout(() => setSuccess(null), 3000);
+        
+        // Verificar status para obter informações atualizadas
+        await handleCheckInstanceStatus();
+      } else {
+        throw new Error(result.error || 'QR Code não encontrado na resposta');
+      }
+    } catch (err) {
+      console.error('❌ Error fetching QR Code:', err);
+      setError(err instanceof Error ? err.message : 'Erro ao buscar QR Code');
+    }
   };
 
   const getStatusColor = (status: string) => {
@@ -262,10 +310,10 @@ const WhatsAppNumber: React.FC = () => {
 
   const isConnectedStatus = connectionStatus.toUpperCase() === 'CONNECTED';
 
-  if (supabaseLoading) {
+  if (supabaseLoading || authLoading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
+        <div className="w-8 h-8 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
         <span className="ml-2 text-gray-600 dark:text-gray-400">Carregando...</span>
       </div>
     );
@@ -377,12 +425,24 @@ const WhatsAppNumber: React.FC = () => {
         </div>
       )}
 
+      {/* Monitoring Status */}
+      {monitoringActive && (
+        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+          <div className="flex items-center space-x-2">
+            <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+            <p className="text-blue-700 dark:text-blue-300">
+              Monitorando conexão... Escaneie o QR Code com seu WhatsApp para conectar.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Status Overview */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Status da Conexão Z-API</p>
+              <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Status da Conexão</p>
               <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">
                 {getStatusText(connectionStatus)}
               </p>
@@ -394,8 +454,8 @@ const WhatsAppNumber: React.FC = () => {
               {instanceInfo && (
                 <div className="text-sm text-gray-600 dark:text-gray-400 mt-2 space-y-1">
                   <p>Instância: {instanceInfo.name || instanceInfo.id}</p>
-                  {instanceInfo.due && (
-                    <p>Vencimento: {new Date(instanceInfo.due * 1000).toLocaleDateString('pt-BR')}</p>
+                  {instanceInfo.phone && (
+                    <p>Telefone: {instanceInfo.phone}</p>
                   )}
                 </div>
               )}
@@ -414,7 +474,7 @@ const WhatsAppNumber: React.FC = () => {
                 {whatsappNumber?.is_ai_active ? 'Sim' : 'Não'}
               </p>
               <p className="text-sm text-gray-600 dark:text-gray-400 mt-2">
-                Salvo no Supabase
+                Veja mais em Treinamento de I.A
               </p>
             </div>
             <div className="w-12 h-12 bg-purple-500 rounded-lg flex items-center justify-center">
@@ -431,7 +491,7 @@ const WhatsAppNumber: React.FC = () => {
                 {isZAPIConfigured && profile?.id ? 'OK' : 'Pendente'}
               </p>
               <p className="text-sm text-gray-600 dark:text-gray-400 mt-2">
-                Z-API + Supabase
+                Veja mais em Conversas
               </p>
             </div>
             <div className={`w-12 h-12 ${isZAPIConfigured && profile?.id ? 'bg-blue-500' : 'bg-orange-500'} rounded-lg flex items-center justify-center`}>
@@ -456,7 +516,7 @@ const WhatsAppNumber: React.FC = () => {
                 value={testPhone}
                 onChange={(e) => setTestPhone(e.target.value)}
                 disabled={!isConnectedStatus || !isZAPIConfigured || !profile?.id}
-                className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 disabled:opacity-50"
+                className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 disabled:opacity-50"
               />
             </div>
             <div>
@@ -468,7 +528,7 @@ const WhatsAppNumber: React.FC = () => {
                 value={testMessage}
                 onChange={(e) => setTestMessage(e.target.value)}
                 disabled={!isConnectedStatus || !isZAPIConfigured || !profile?.id}
-                className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 disabled:opacity-50"
+                className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 disabled:opacity-50"
               />
             </div>
           </div>
@@ -494,13 +554,13 @@ const WhatsAppNumber: React.FC = () => {
 
       {/* Fluxo Correto Info */}
       <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-6">
-        <h3 className="text-lg font-semibold text-blue-900 dark:text-blue-100 mb-4">📱 Fluxo Correto de Conexão</h3>
+        <h3 className="text-lg font-semibold text-blue-900 dark:text-blue-100 mb-4">📱 Como conectar?</h3>
         <div className="space-y-3">
           <div className="flex items-center space-x-3">
             <div className="w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center text-sm font-bold">1</div>
             <div>
               <p className="font-medium text-blue-900 dark:text-blue-100">Clique em "Conectar Número"</p>
-              <p className="text-sm text-blue-700 dark:text-blue-300">Gera o QR Code automaticamente via Z-API</p>
+              <p className="text-sm text-blue-700 dark:text-blue-300">Gera o QR Code automaticamente</p>
             </div>
           </div>
           <div className="flex items-center space-x-3">
@@ -514,7 +574,7 @@ const WhatsAppNumber: React.FC = () => {
             <div className="w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center text-sm font-bold">3</div>
             <div>
               <p className="font-medium text-blue-900 dark:text-blue-100">Conexão Automática</p>
-              <p className="text-sm text-blue-700 dark:text-blue-300">Sistema verifica status via endpoint /status</p>
+              <p className="text-sm text-blue-700 dark:text-blue-300">Sistema detecta automaticamente</p>
             </div>
           </div>
           <div className="flex items-center space-x-3">
@@ -526,39 +586,6 @@ const WhatsAppNumber: React.FC = () => {
           </div>
         </div>
       </div>
-
-      {/* Configuration Info */}
-      {isZAPIConfigured && (
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Configuração Z-API</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Instance ID</label>
-              <p className="text-sm text-gray-600 dark:text-gray-400 font-mono bg-gray-50 dark:bg-gray-700 p-2 rounded">
-                {zapiService.getConfig().instanceId}
-              </p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Token</label>
-              <p className="text-sm text-gray-600 dark:text-gray-400 font-mono bg-gray-50 dark:bg-gray-700 p-2 rounded">
-                {zapiService.getConfig().token ? '••••••••••••••••' : 'Não configurado'}
-              </p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Client Token</label>
-              <p className="text-sm text-gray-600 dark:text-gray-400 font-mono bg-gray-50 dark:bg-gray-700 p-2 rounded">
-                F11caf4052f99463985f532794820b07dS
-              </p>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">URL Base</label>
-              <p className="text-sm text-gray-600 dark:text-gray-400 font-mono bg-gray-50 dark:bg-gray-700 p-2 rounded break-all">
-                https://api.z-api.io/instances/{zapiService.getConfig().instanceId}/token/{zapiService.getConfig().token}/
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* QR Code Modal */}
       {showQRModal && (
@@ -590,6 +617,17 @@ const WhatsAppNumber: React.FC = () => {
                 )}
               </div>
               
+              {monitoringActive && (
+                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 mb-6">
+                  <div className="flex items-center justify-center space-x-2">
+                    <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                    <p className="text-blue-700 dark:text-blue-300 text-sm">
+                      Aguardando conexão... O popup fechará automaticamente quando conectado.
+                    </p>
+                  </div>
+                </div>
+              )}
+              
               <div className="text-sm text-gray-500 dark:text-gray-400 mb-6 space-y-1">
                 <p>1. Abra o WhatsApp no seu celular</p>
                 <p>2. Toque em Menu (⋮) → Dispositivos conectados</p>
@@ -599,7 +637,14 @@ const WhatsAppNumber: React.FC = () => {
               
               <div className="flex space-x-3">
                 <button
-                  onClick={() => setShowQRModal(false)}
+                  onClick={() => {
+                    setShowQRModal(false);
+                    setMonitoringActive(false);
+                    if (monitoringInterval) {
+                      clearInterval(monitoringInterval);
+                      setMonitoringInterval(null);
+                    }
+                  }}
                   className="flex-1 px-6 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors"
                 >
                   Fechar

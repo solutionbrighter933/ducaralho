@@ -1,5 +1,5 @@
 /*
-  # Initial Schema for Attendos AI SaaS
+  # Initial Schema for Atendos IA SaaS
 
   1. New Tables
     - `profiles` - User profiles and settings
