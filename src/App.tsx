@@ -9,8 +9,9 @@ import InstagramDirect from './components/InstagramDirect';
 import Settings from './components/Settings';
 import Profile from './components/Profile';
 import Support from './components/Support';
+import SupabaseDebugger from './components/SupabaseDebugger';
 
-type ActiveSection = 'dashboard' | 'conversations' | 'ai-training' | 'whatsapp' | 'instagram' | 'settings' | 'profile' | 'support';
+type ActiveSection = 'dashboard' | 'conversations' | 'ai-training' | 'whatsapp' | 'instagram' | 'settings' | 'profile' | 'support' | 'debug';
 type Theme = 'light' | 'dark' | 'auto';
 
 function App() {
@@ -72,13 +73,15 @@ function App() {
       case 'whatsapp':
         return <WhatsAppNumber />;
       case 'instagram':
-        return <InstagramDirect />;
+        return <InstagramDirect setActiveSection={setActiveSection} />;
       case 'settings':
         return <Settings theme={theme} setTheme={setTheme} activeTab={settingsTab} setActiveTab={setSettingsTab} />;
       case 'profile':
         return <Profile />;
       case 'support':
         return <Support />;
+      case 'debug':
+        return <SupabaseDebugger />;
       default:
         return <WhatsAppNumber />;
     }

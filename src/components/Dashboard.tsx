@@ -12,7 +12,8 @@ import {
   Calendar,
   BarChart3,
   ArrowDownLeft,
-  ArrowUpRight
+  ArrowUpRight,
+  Instagram
 } from 'lucide-react';
 import { useAuthContext } from './AuthProvider';
 import { supabase } from '../lib/supabase';
@@ -40,6 +41,7 @@ interface RecentActivity {
   time: string;
   status: string;
   direction: 'sent' | 'received';
+  platform: 'whatsapp' | 'instagram';
 }
 
 const Dashboard: React.FC = () => {
@@ -74,34 +76,119 @@ const Dashboard: React.FC = () => {
       setLoading(true);
       
       // Buscar estatísticas das conversas WhatsApp
-      const { data: conversasStats } = await supabase
+      const { data: conversasWhatsAppStats } = await supabase
         .rpc('obter_estatisticas_conversas_whatsapp');
 
       // Buscar mensagens da última semana para o gráfico INTERATIVO
       const weeklyData = await getDetailedWeeklyMessageStats();
       
-      // Buscar atividade recente da tabela mensagens_whatsapp
-      const recentActivities = await getRecentActivityFromWhatsApp();
+      // Buscar atividade recente combinando WhatsApp e Instagram
+      const recentActivities = await getCombinedRecentActivity();
 
-      if (conversasStats && conversasStats.length > 0) {
-        const statsData = conversasStats[0];
-        setStats({
-          totalContacts: parseInt(statsData.total_conversas) || 0,
-          activeConversations: parseInt(statsData.conversas_ativas) || 0,
-          totalMessages: await getTotalMessagesFromWhatsApp(),
-          unreadMessages: parseInt(statsData.mensagens_nao_lidas) || 0,
-          messagesThisWeek: weeklyData.map(d => d.total),
-          weeklyDetails: weeklyData,
-          avgResponseTime: '2 segundos', // Sempre fixo como solicitado
-          lastActivity: statsData.ultima_atividade || ''
-        });
-      }
+      // Buscar estatísticas do Instagram
+      const instagramStats = await getInstagramStats();
 
+      // Combinar estatísticas do WhatsApp e Instagram
+      const whatsappStats = conversasWhatsAppStats && conversasWhatsAppStats.length > 0 ? conversasWhatsAppStats[0] : null;
+      
+      const combinedStats = {
+        totalContacts: (parseInt(whatsappStats?.total_conversas) || 0) + (instagramStats.totalConversations || 0),
+        activeConversations: (parseInt(whatsappStats?.conversas_ativas) || 0) + (instagramStats.activeConversations || 0),
+        totalMessages: await getTotalMessagesFromWhatsApp() + (instagramStats.totalMessages || 0),
+        unreadMessages: (parseInt(whatsappStats?.mensagens_nao_lidas) || 0) + (instagramStats.unreadMessages || 0),
+        messagesThisWeek: weeklyData.map(d => d.total),
+        weeklyDetails: weeklyData,
+        avgResponseTime: '2 segundos', // Sempre fixo como solicitado
+        lastActivity: getLatestTimestamp(whatsappStats?.ultima_atividade, instagramStats.lastActivity)
+      };
+
+      setStats(combinedStats);
       setRecentActivity(recentActivities);
     } catch (error) {
       console.error('Erro ao carregar dados do dashboard:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Função para obter a timestamp mais recente entre WhatsApp e Instagram
+  const getLatestTimestamp = (whatsappTimestamp: string | null | undefined, instagramTimestamp: string | null | undefined): string => {
+    if (!whatsappTimestamp && !instagramTimestamp) return '';
+    if (!whatsappTimestamp) return instagramTimestamp || '';
+    if (!instagramTimestamp) return whatsappTimestamp || '';
+    
+    const whatsappDate = new Date(whatsappTimestamp).getTime();
+    const instagramDate = new Date(instagramTimestamp).getTime();
+    
+    return whatsappDate > instagramDate ? whatsappTimestamp : instagramTimestamp;
+  };
+
+  // Obter estatísticas do Instagram
+  const getInstagramStats = async (): Promise<{
+    totalConversations: number;
+    activeConversations: number;
+    totalMessages: number;
+    unreadMessages: number;
+    lastActivity: string | null;
+  }> => {
+    try {
+      if (!user?.id) return { 
+        totalConversations: 0, 
+        activeConversations: 0, 
+        totalMessages: 0, 
+        unreadMessages: 0, 
+        lastActivity: null 
+      };
+
+      // Buscar conversas únicas do Instagram (agrupadas por sender_id)
+      const { data: instagramMessages } = await supabase
+        .from('conversas_instagram')
+        .select('sender_id, data_hora')
+        .eq('user_id', user.id)
+        .order('data_hora', { ascending: false });
+
+      if (!instagramMessages || instagramMessages.length === 0) {
+        return { 
+          totalConversations: 0, 
+          activeConversations: 0, 
+          totalMessages: 0, 
+          unreadMessages: 0, 
+          lastActivity: null 
+        };
+      }
+
+      // Contar conversas únicas (por sender_id)
+      const uniqueSenders = new Set(instagramMessages.map(msg => msg.sender_id));
+      const totalConversations = uniqueSenders.size;
+      
+      // Considerar todas as conversas como ativas
+      const activeConversations = totalConversations;
+      
+      // Total de mensagens é o número total de registros
+      const totalMessages = instagramMessages.length;
+      
+      // Não temos conceito de "não lidas" no Instagram, então assumimos 0
+      const unreadMessages = 0;
+      
+      // Última atividade é a data mais recente
+      const lastActivity = instagramMessages[0]?.data_hora || null;
+
+      return {
+        totalConversations,
+        activeConversations,
+        totalMessages,
+        unreadMessages,
+        lastActivity
+      };
+    } catch (error) {
+      console.error('Erro ao buscar estatísticas do Instagram:', error);
+      return { 
+        totalConversations: 0, 
+        activeConversations: 0, 
+        totalMessages: 0, 
+        unreadMessages: 0, 
+        lastActivity: null 
+      };
     }
   };
 
@@ -137,8 +224,8 @@ const Dashboard: React.FC = () => {
         const endOfDay = new Date(date);
         endOfDay.setHours(23, 59, 59, 999);
         
-        // Buscar mensagens enviadas
-        const { count: sentCount } = await supabase
+        // Buscar mensagens enviadas do WhatsApp
+        const { count: whatsappSentCount } = await supabase
           .from('mensagens_whatsapp')
           .select('*', { count: 'exact', head: true })
           .eq('user_id', user?.id)
@@ -146,8 +233,8 @@ const Dashboard: React.FC = () => {
           .gte('data_hora', startOfDay.toISOString())
           .lte('data_hora', endOfDay.toISOString());
         
-        // Buscar mensagens recebidas
-        const { count: receivedCount } = await supabase
+        // Buscar mensagens recebidas do WhatsApp
+        const { count: whatsappReceivedCount } = await supabase
           .from('mensagens_whatsapp')
           .select('*', { count: 'exact', head: true })
           .eq('user_id', user?.id)
@@ -155,8 +242,26 @@ const Dashboard: React.FC = () => {
           .gte('data_hora', startOfDay.toISOString())
           .lte('data_hora', endOfDay.toISOString());
         
-        const sent = sentCount || 0;
-        const received = receivedCount || 0;
+        // Buscar mensagens enviadas do Instagram
+        const { count: instagramSentCount } = await supabase
+          .from('conversas_instagram')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user?.id)
+          .eq('direcao', 'sent')
+          .gte('data_hora', startOfDay.toISOString())
+          .lte('data_hora', endOfDay.toISOString());
+        
+        // Buscar mensagens recebidas do Instagram
+        const { count: instagramReceivedCount } = await supabase
+          .from('conversas_instagram')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user?.id)
+          .eq('direcao', 'received')
+          .gte('data_hora', startOfDay.toISOString())
+          .lte('data_hora', endOfDay.toISOString());
+        
+        const sent = (whatsappSentCount || 0) + (instagramSentCount || 0);
+        const received = (whatsappReceivedCount || 0) + (instagramReceivedCount || 0);
         const total = sent + received;
         
         weekData.push({
@@ -181,57 +286,103 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  // CORRIGIDO: Buscar atividade recente da tabela mensagens_whatsapp com lógica correta
-  const getRecentActivityFromWhatsApp = async (): Promise<RecentActivity[]> => {
+  // Buscar atividade recente combinando WhatsApp e Instagram
+  const getCombinedRecentActivity = async (): Promise<RecentActivity[]> => {
     try {
-      const { data: recentMessages } = await supabase
-        .from('mensagens_whatsapp')
-        .select('mensagem, direcao, data_hora, nome_contato, numero')
-        .eq('user_id', user?.id)
-        .order('data_hora', { ascending: false })
-        .limit(8);
-
-      if (recentMessages) {
-        return recentMessages.map(msg => {
-          const nomeContato = msg.nome_contato || msg.numero || 'Contato';
-          const mensagemTruncada = msg.mensagem.length > 50 
-            ? msg.mensagem.substring(0, 50) + '...' 
-            : msg.mensagem;
-
-          // LÓGICA CORRIGIDA baseada na coluna 'direcao'
-          const isReceived = msg.direcao === 'received';
-          const isSent = msg.direcao === 'sent';
-          
-          let message = '';
-          let type = '';
-          
-          if (isReceived) {
-            // Mensagem RECEBIDA - eu recebi do contato
-            message = `Mensagem recebida de ${nomeContato}: "${mensagemTruncada}"`;
-            type = 'message_received';
-          } else if (isSent) {
-            // Mensagem ENVIADA - eu enviei para o contato
-            message = `Mensagem enviada para ${nomeContato}: "${mensagemTruncada}"`;
-            type = 'message_sent';
-          } else {
-            // Fallback para casos não identificados
-            message = `Mensagem de ${nomeContato}: "${mensagemTruncada}"`;
-            type = 'message_unknown';
-          }
-
-          return {
-            type,
-            message,
-            time: formatTimeAgo(msg.data_hora),
-            status: isReceived ? 'received' : 'sent',
-            direction: isReceived ? 'received' : 'sent'
-          };
-        });
+      if (!user?.id) {
+        return [];
       }
 
-      return [];
+      // Buscar mensagens recentes do WhatsApp
+      const { data: whatsappMessages } = await supabase
+        .from('mensagens_whatsapp')
+        .select('mensagem, direcao, data_hora, nome_contato, numero')
+        .eq('user_id', user.id)
+        .order('data_hora', { ascending: false })
+        .limit(5);
+
+      // Buscar mensagens recentes do Instagram
+      const { data: instagramMessages } = await supabase
+        .from('conversas_instagram')
+        .select('mensagem, direcao, data_hora, sender_id')
+        .eq('user_id', user.id)
+        .order('data_hora', { ascending: false })
+        .limit(5);
+
+      const whatsappActivities: RecentActivity[] = (whatsappMessages || []).map(msg => {
+        const nomeContato = msg.nome_contato || msg.numero || 'Contato';
+        const mensagemTruncada = msg.mensagem.length > 50 
+          ? msg.mensagem.substring(0, 50) + '...' 
+          : msg.mensagem;
+
+        const isReceived = msg.direcao === 'received';
+        
+        let message = '';
+        let type = '';
+        
+        if (isReceived) {
+          // Mensagem RECEBIDA - eu recebi do contato
+          message = `Mensagem recebida de ${nomeContato}: "${mensagemTruncada}"`;
+          type = 'message_received';
+        } else {
+          // Mensagem ENVIADA - eu enviei para o contato
+          message = `Mensagem enviada para ${nomeContato}: "${mensagemTruncada}"`;
+          type = 'message_sent';
+        }
+
+        return {
+          type,
+          message,
+          time: formatTimeAgo(msg.data_hora),
+          status: isReceived ? 'received' : 'sent',
+          direction: isReceived ? 'received' : 'sent',
+          platform: 'whatsapp' as const
+        };
+      });
+
+      const instagramActivities: RecentActivity[] = (instagramMessages || []).map(msg => {
+        const senderName = `@${msg.sender_id}`;
+        const mensagemTruncada = msg.mensagem.length > 50 
+          ? msg.mensagem.substring(0, 50) + '...' 
+          : msg.mensagem;
+
+        const isReceived = msg.direcao === 'received';
+        
+        let message = '';
+        let type = '';
+        
+        if (isReceived) {
+          // Mensagem RECEBIDA - eu recebi do contato
+          message = `Instagram: Mensagem recebida de ${senderName}: "${mensagemTruncada}"`;
+          type = 'instagram_received';
+        } else {
+          // Mensagem ENVIADA - eu enviei para o contato
+          message = `Instagram: Mensagem enviada para ${senderName}: "${mensagemTruncada}"`;
+          type = 'instagram_sent';
+        }
+
+        return {
+          type,
+          message,
+          time: formatTimeAgo(msg.data_hora),
+          status: isReceived ? 'received' : 'sent',
+          direction: isReceived ? 'received' : 'sent',
+          platform: 'instagram' as const
+        };
+      });
+
+      // Combinar e ordenar por tempo (mais recente primeiro)
+      const combinedActivities = [...whatsappActivities, ...instagramActivities]
+        .sort((a, b) => {
+          const timeA = new Date(a.time).getTime();
+          const timeB = new Date(b.time).getTime();
+          return timeB - timeA;
+        })
+        .slice(0, 8); // Limitar a 8 atividades
+
+      return combinedActivities;
     } catch (error) {
-      console.error('Erro ao buscar atividade recente:', error);
+      console.error('Erro ao buscar atividade recente combinada:', error);
       return [];
     }
   };
@@ -479,7 +630,7 @@ const Dashboard: React.FC = () => {
           </div>
         </div>
 
-        {/* Recent Activity - CORRIGIDA com lógica baseada na coluna 'direcao' */}
+        {/* Recent Activity - ATUALIZADA para incluir Instagram */}
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center space-x-2">
             <Activity className="w-5 h-5 text-green-600" />
@@ -490,16 +641,28 @@ const Dashboard: React.FC = () => {
             {recentActivity.length > 0 ? (
               recentActivity.map((activity, index) => (
                 <div key={index} className="flex items-start space-x-3 p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                  {/* Ícone baseado na direção da mensagem - CORRIGIDO */}
+                  {/* Ícone baseado na plataforma e direção */}
                   <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
-                    activity.direction === 'received' 
-                      ? 'bg-green-100 dark:bg-green-900/30' 
-                      : 'bg-blue-100 dark:bg-blue-900/30'
+                    activity.platform === 'whatsapp'
+                      ? activity.direction === 'received' 
+                        ? 'bg-green-100 dark:bg-green-900/30' 
+                        : 'bg-blue-100 dark:bg-blue-900/30'
+                      : activity.direction === 'received'
+                        ? 'bg-purple-100 dark:bg-purple-900/30'
+                        : 'bg-pink-100 dark:bg-pink-900/30'
                   }`}>
-                    {activity.direction === 'received' ? (
-                      <ArrowDownLeft className="w-4 h-4 text-green-600 dark:text-green-400" />
+                    {activity.platform === 'whatsapp' ? (
+                      activity.direction === 'received' ? (
+                        <ArrowDownLeft className="w-4 h-4 text-green-600 dark:text-green-400" />
+                      ) : (
+                        <ArrowUpRight className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                      )
                     ) : (
-                      <ArrowUpRight className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                      activity.direction === 'received' ? (
+                        <Instagram className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                      ) : (
+                        <Instagram className="w-4 h-4 text-pink-600 dark:text-pink-400" />
+                      )
                     )}
                   </div>
                   
@@ -509,18 +672,25 @@ const Dashboard: React.FC = () => {
                       <span>{activity.time}</span>
                       <span>•</span>
                       <span className={`font-medium ${
-                        activity.direction === 'received' 
-                          ? 'text-green-600 dark:text-green-400' 
-                          : 'text-blue-600 dark:text-blue-400'
+                        activity.platform === 'whatsapp'
+                          ? activity.direction === 'received' 
+                            ? 'text-green-600 dark:text-green-400' 
+                            : 'text-blue-600 dark:text-blue-400'
+                          : activity.direction === 'received'
+                            ? 'text-purple-600 dark:text-purple-400'
+                            : 'text-pink-600 dark:text-pink-400'
                       }`}>
                         {activity.direction === 'received' ? 'Recebida' : 'Enviada'}
+                        {activity.platform === 'instagram' ? ' (Instagram)' : ''}
                       </span>
                     </p>
                   </div>
                   
                   {/* Status indicator */}
                   <div className={`w-2 h-2 rounded-full flex-shrink-0 mt-2 ${
-                    activity.direction === 'received' ? 'bg-green-500' : 'bg-blue-500'
+                    activity.platform === 'whatsapp'
+                      ? activity.direction === 'received' ? 'bg-green-500' : 'bg-blue-500'
+                      : activity.direction === 'received' ? 'bg-purple-500' : 'bg-pink-500'
                   }`}></div>
                 </div>
               ))

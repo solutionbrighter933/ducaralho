@@ -20,6 +20,7 @@ export const useAuth = () => {
   useEffect(() => {
     let mounted = true;
     let timeoutId: NodeJS.Timeout;
+    let profileRefreshInterval: NodeJS.Timeout;
 
     // Set a timeout to prevent infinite loading
     timeoutId = setTimeout(() => {
@@ -99,6 +100,11 @@ export const useAuth = () => {
                 loading: false,
                 error: null,
               });
+              
+              // Set up periodic profile refresh to prevent profile loss
+              if (session.user.id) {
+                setupProfileRefresh(session.user.id);
+              }
             } catch (profileError) {
               console.warn('⚠️ Profile fetch failed, continuing without profile:', profileError);
               // Continue with user but no profile - this is acceptable
@@ -108,6 +114,11 @@ export const useAuth = () => {
                 loading: false,
                 error: null,
               });
+              
+              // Set up periodic profile refresh to recover profile
+              if (session.user.id) {
+                setupProfileRefresh(session.user.id);
+              }
             }
           } else {
             console.log('🚫 No user session found');
@@ -133,6 +144,110 @@ export const useAuth = () => {
         if (timeoutId) {
           clearTimeout(timeoutId);
         }
+      }
+    };
+
+    // Function to periodically refresh profile data
+    const setupProfileRefresh = (userId: string) => {
+      // Clear any existing interval
+      if (profileRefreshInterval) {
+        clearInterval(profileRefreshInterval);
+      }
+      
+      // Set up new interval to refresh profile every 30 seconds
+      profileRefreshInterval = setInterval(async () => {
+        if (!mounted) return;
+        
+        try {
+          console.log('🔄 Refreshing profile data...');
+          const { data: profile, error: profileError } = await supabase
+            .from('profiles')
+            .select(`
+              *,
+              organizations (
+                id,
+                name,
+                slug
+              )
+            `)
+            .eq('user_id', userId)
+            .maybeSingle();
+
+          if (profileError) {
+            console.warn('⚠️ Profile refresh error:', profileError);
+            // Don't update state on error to avoid losing existing profile
+          } else if (profile) {
+            console.log('✅ Profile refreshed successfully');
+            setState(prev => ({
+              ...prev,
+              profile,
+            }));
+          } else if (!state.profile) {
+            console.warn('⚠️ Profile still not found during refresh');
+            // Try to create profile if it doesn't exist
+            tryCreateProfile(userId);
+          }
+        } catch (error) {
+          console.warn('⚠️ Error during profile refresh:', error);
+        }
+      }, 30000); // Refresh every 30 seconds
+    };
+
+    // Function to attempt profile creation if it doesn't exist
+    const tryCreateProfile = async (userId: string) => {
+      try {
+        console.log('🔄 Attempting to create missing profile...');
+        
+        // Get user details
+        const { data: { user }, error: userError } = await supabase.auth.getUser();
+        
+        if (userError || !user) {
+          console.error('❌ Failed to get user details:', userError);
+          return;
+        }
+        
+        // Create default organization
+        const { data: organization, error: orgError } = await supabase
+          .from('organizations')
+          .insert({
+            name: user.email?.split('@')[0] || 'My Organization',
+            slug: `org-${Date.now()}`,
+          })
+          .select()
+          .single();
+          
+        if (orgError) {
+          console.error('❌ Failed to create organization:', orgError);
+          return;
+        }
+        
+        // Create profile
+        const { data: profile, error: profileError } = await supabase
+          .from('profiles')
+          .insert({
+            user_id: userId,
+            organization_id: organization.id,
+            email: user.email || '',
+            full_name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'User',
+            role: 'admin',
+          })
+          .select()
+          .single();
+          
+        if (profileError) {
+          console.error('❌ Failed to create profile:', profileError);
+          return;
+        }
+        
+        console.log('✅ Profile created successfully:', profile);
+        
+        // Update state with new profile
+        setState(prev => ({
+          ...prev,
+          profile,
+        }));
+      } catch (error) {
+        console.error('❌ Error creating profile:', error);
       }
     };
 
@@ -183,6 +298,9 @@ export const useAuth = () => {
                 loading: false,
                 error: null,
               });
+              
+              // Set up periodic profile refresh
+              setupProfileRefresh(session.user.id);
             } catch (profileError) {
               console.warn('⚠️ Profile fetch failed, continuing without profile:', profileError);
               setState({
@@ -191,6 +309,9 @@ export const useAuth = () => {
                 loading: false,
                 error: null,
               });
+              
+              // Set up periodic profile refresh to recover profile
+              setupProfileRefresh(session.user.id);
             }
           } else {
             console.log('🚪 User signed out');
@@ -200,6 +321,12 @@ export const useAuth = () => {
               loading: false,
               error: null,
             });
+            
+            // Clear profile refresh interval on sign out
+            if (profileRefreshInterval) {
+              clearInterval(profileRefreshInterval);
+              profileRefreshInterval = null;
+            }
           }
         } catch (error) {
           console.error('❌ Auth state change error:', error);
@@ -217,6 +344,9 @@ export const useAuth = () => {
       mounted = false;
       if (timeoutId) {
         clearTimeout(timeoutId);
+      }
+      if (profileRefreshInterval) {
+        clearInterval(profileRefreshInterval);
       }
       subscription.unsubscribe();
     };
@@ -398,11 +528,57 @@ export const useAuth = () => {
     }
   };
 
+  // Função para forçar uma atualização do perfil
+  const refreshProfile = async () => {
+    if (!state.user?.id) {
+      console.warn('⚠️ Cannot refresh profile: No user logged in');
+      return { success: false, error: 'Usuário não autenticado' };
+    }
+    
+    try {
+      console.log('🔄 Manually refreshing profile data...');
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select(`
+          *,
+          organizations (
+            id,
+            name,
+            slug
+          )
+        `)
+        .eq('user_id', state.user.id)
+        .maybeSingle();
+
+      if (profileError) {
+        console.error('❌ Manual profile refresh error:', profileError);
+        return { success: false, error: profileError.message };
+      }
+
+      if (profile) {
+        console.log('✅ Profile refreshed successfully');
+        setState(prev => ({
+          ...prev,
+          profile,
+        }));
+        return { success: true, profile };
+      } else {
+        console.warn('⚠️ Profile not found during manual refresh');
+        return { success: false, error: 'Perfil não encontrado' };
+      }
+    } catch (error) {
+      console.error('❌ Manual profile refresh exception:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Erro ao atualizar perfil';
+      return { success: false, error: errorMessage };
+    }
+  };
+
   return {
     ...state,
     signIn,
     signUp,
     signOut,
+    refreshProfile,
     isAuthenticated: !!state.user,
   };
 };

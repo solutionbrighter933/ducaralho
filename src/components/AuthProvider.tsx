@@ -10,6 +10,7 @@ interface AuthContextType {
   signUp: (email: string, password: string, organizationName: string) => Promise<any>;
   signOut: () => Promise<any>;
   isAuthenticated: boolean;
+  refreshProfile: () => Promise<any>; // Adicionado método para atualizar perfil
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);

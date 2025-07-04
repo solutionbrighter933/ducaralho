@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Brain, Settings, Play, Save, X, Bot, MessageSquare, Instagram, Phone, AlertCircle } from 'lucide-react';
+import { Brain, Settings, Play, Save, X, Bot, MessageSquare, Instagram, Phone, AlertCircle, RefreshCw, Lock } from 'lucide-react';
 import { useWhatsAppConnection } from '../hooks/useWhatsAppConnection';
 
 interface AITrainingProps {
@@ -17,7 +17,15 @@ const AITraining: React.FC<AITrainingProps> = ({ setActiveSection, setSettingsTa
   const [isTraining, setIsTraining] = useState(false);
   const [isSavingPhone, setIsSavingPhone] = useState(false);
   
-  const { whatsappNumber, updateAIPrompt, loading, profile, authLoading, saveOrUpdateWhatsAppNumberInSupabase } = useWhatsAppConnection();
+  const { 
+    whatsappNumber, 
+    updateAIPrompt, 
+    loading, 
+    profile, 
+    authLoading, 
+    saveOrUpdateWhatsAppNumberInSupabase,
+    refreshProfile 
+  } = useWhatsAppConnection();
 
   useEffect(() => {
     if (whatsappNumber?.ai_prompt) {
@@ -50,6 +58,21 @@ const AITraining: React.FC<AITrainingProps> = ({ setActiveSection, setSettingsTa
   // Verificar se o número de telefone está configurado
   const hasPhoneNumber = whatsappNumber?.phone_number && whatsappNumber.phone_number.trim() !== '';
 
+  // Função para tentar recuperar o perfil
+  const handleRetryProfile = async () => {
+    try {
+      console.log('🔄 Tentando recuperar perfil manualmente...');
+      const result = await refreshProfile();
+      
+      if (!result.success) {
+        alert('❌ Falha ao recuperar perfil: ' + result.error);
+      }
+    } catch (error) {
+      console.error('❌ Erro ao tentar recuperar perfil:', error);
+      alert('❌ Erro ao tentar recuperar perfil. Tente recarregar a página.');
+    }
+  };
+
   const handleOpenPromptModal = (type: 'whatsapp' | 'instagram') => {
     // Check if profile is available before opening modal
     if (!profile?.id || !profile?.organization_id) {
@@ -61,6 +84,12 @@ const AITraining: React.FC<AITrainingProps> = ({ setActiveSection, setSettingsTa
     if (type === 'whatsapp' && !hasPhoneNumber) {
       alert('⚠️ Digite o número que foi conectado antes de configurar o prompt do WhatsApp.');
       setShowPhoneModal(true);
+      return;
+    }
+    
+    // Bloquear acesso ao prompt do Instagram para todos os usuários
+    if (type === 'instagram') {
+      alert('⚠️ A configuração de prompt para Instagram não está disponível no momento.');
       return;
     }
     
@@ -138,9 +167,8 @@ const AITraining: React.FC<AITrainingProps> = ({ setActiveSection, setSettingsTa
         await updateAIPrompt(currentPrompt.trim());
         alert('✅ Prompt do WhatsApp atualizado com sucesso!');
       } else {
-        // Para Instagram, por enquanto apenas salvamos localmente
-        // TODO: Implementar salvamento do prompt do Instagram
-        alert('✅ Prompt do Instagram salvo com sucesso!');
+        // Nunca deve chegar aqui, pois o botão do Instagram está bloqueado
+        alert('❌ A configuração de prompt para Instagram não está disponível no momento.');
       }
       setShowPromptModal(false);
     } catch (error) {
@@ -184,10 +212,17 @@ const AITraining: React.FC<AITrainingProps> = ({ setActiveSection, setSettingsTa
   // Show message if profile is not available
   if (!profile?.id || !profile?.organization_id) {
     return (
-      <div className="flex items-center justify-center py-12">
+      <div className="flex flex-col items-center justify-center py-12">
         <div className="text-center">
           <div className="w-8 h-8 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-gray-600 dark:text-gray-400">Carregando perfil do usuário...</p>
+          <p className="text-gray-600 dark:text-gray-400 mb-4">Carregando perfil do usuário...</p>
+          <button
+            onClick={handleRetryProfile}
+            className="flex items-center space-x-2 px-4 py-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition-colors"
+          >
+            <RefreshCw className="w-4 h-4" />
+            <span>Tentar Novamente</span>
+          </button>
         </div>
       </div>
     );
@@ -283,17 +318,16 @@ const AITraining: React.FC<AITrainingProps> = ({ setActiveSection, setSettingsTa
           
           <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 mb-4">
             <p className="text-gray-700 dark:text-gray-300 leading-relaxed text-sm">
-              {instagramPrompt || 'Nenhum prompt configurado para Instagram'}
+              {instagramPrompt || 'Prompt já configurado'}
             </p>
           </div>
           
           <button 
-            onClick={() => handleOpenPromptModal('instagram')}
-            disabled={isTraining}
-            className="w-full flex items-center justify-center space-x-2 px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:from-purple-600 hover:to-pink-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={true}
+            className="w-full flex items-center justify-center space-x-2 px-4 py-2 bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400 rounded-lg cursor-not-allowed opacity-70"
           >
-            <Bot className="w-4 h-4" />
-            <span>Definir Prompt para Instagram</span>
+            <Lock className="w-4 h-4" />
+            <span>Função não disponível</span>
           </button>
         </div>
       </div>

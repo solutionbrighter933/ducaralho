@@ -21,7 +21,7 @@ export const useWhatsAppConnection = () => {
   const [whatsappNumber, setWhatsappNumber] = useState<WhatsAppNumber | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const { user, profile, loading: authLoading } = useAuthContext();
+  const { user, profile, loading: authLoading, refreshProfile } = useAuthContext();
 
   useEffect(() => {
     if (!profile?.id) return;
@@ -205,30 +205,58 @@ export const useWhatsAppConnection = () => {
     }
   };
 
-  // CONECTAR WHATSAPP - FLUXO CORRETO: QR CODE PRIMEIRO!
+  // CONECTAR WHATSAPP - IMPLEMENTAÇÃO CORRIGIDA
   const connectWhatsApp = async () => {
     try {
+      console.log('🔄 Iniciando conexão WhatsApp - Gerando QR Code...');
       setLoading(true);
       setError(null);
 
-      console.log('🔄 Starting WhatsApp connection - QR Code first!');
-
       if (!zapiService.isConfigured()) {
+        console.error('❌ Z-API não configurada');
         throw new Error('Credenciais da Z-API não configuradas. Verifique o arquivo .env');
       }
 
       if (!profile?.id || !profile?.organization_id) {
+        console.error('❌ Perfil do usuário não encontrado');
         throw new Error('Perfil do usuário não encontrado');
       }
 
-      // PASSO 1: Obter QR Code DIRETAMENTE (sem verificar status antes)
-      console.log('📱 Step 1: Getting QR Code directly...');
+      // Verificar status atual primeiro
+      console.log('🔍 Verificando status atual antes de gerar QR Code...');
+      const statusResult = await zapiService.getConnectionStatus();
+      
+      if (statusResult.success && statusResult.data && statusResult.data.connected) {
+        console.log('✅ WhatsApp já está conectado! Atualizando status...');
+        
+        // Atualizar status no Supabase
+        await saveOrUpdateWhatsAppNumberInSupabase({
+          profileId: profile.id,
+          organizationId: profile.organization_id,
+          phoneNumber: statusResult.data.phone || undefined,
+          connectionStatus: 'CONNECTED',
+          instanceId: zapiService.getConfig().instanceId,
+          displayName: statusResult.data.name || 'WhatsApp Business',
+          isAiActive: whatsappNumber?.is_ai_active !== undefined ? whatsappNumber.is_ai_active : true,
+          aiPrompt: whatsappNumber?.ai_prompt || 'Você é um assistente virtual prestativo.'
+        });
+        
+        return {
+          success: true,
+          alreadyConnected: true,
+          message: 'WhatsApp já está conectado!'
+        };
+      }
+
+      // Obter QR Code diretamente da Z-API
+      console.log('📱 Obtendo QR Code da Z-API...');
       const qrResult = await zapiService.getQRCode();
+      console.log('📊 Resultado da chamada getQRCode:', qrResult);
       
       if (qrResult.success) {
         // Verificar se já está conectado
         if (qrResult.data?.alreadyConnected) {
-          console.log('✅ WhatsApp already connected, updating status in Supabase...');
+          console.log('✅ WhatsApp já está conectado, atualizando status no Supabase...');
           
           // Atualizar status no Supabase
           await saveOrUpdateWhatsAppNumberInSupabase({
@@ -236,7 +264,7 @@ export const useWhatsAppConnection = () => {
             organizationId: profile.organization_id,
             connectionStatus: 'CONNECTED',
             instanceId: zapiService.getConfig().instanceId,
-            displayName: 'WhatsApp Business',
+            displayName: whatsappNumber?.display_name || 'WhatsApp Business',
             isAiActive: whatsappNumber?.is_ai_active !== undefined ? whatsappNumber.is_ai_active : true,
             aiPrompt: whatsappNumber?.ai_prompt || 'Você é um assistente virtual prestativo.'
           });
@@ -253,15 +281,15 @@ export const useWhatsAppConnection = () => {
         
         // Se temos QR Code, salvar estado e retornar
         if (qrResult.data?.qrCode) {
-          console.log('✅ QR Code generated successfully, saving state to Supabase...');
+          console.log('✅ QR Code gerado com sucesso, salvando estado no Supabase...');
           
-          // PASSO 2: Salvar estado inicial no Supabase
+          // Salvar estado inicial no Supabase
           await saveOrUpdateWhatsAppNumberInSupabase({
             profileId: profile.id,
             organizationId: profile.organization_id,
-            connectionStatus: 'QR_GENERATED', // Estado específico para QR gerado
+            connectionStatus: 'QR_GENERATED',
             instanceId: zapiService.getConfig().instanceId,
-            displayName: 'WhatsApp Business',
+            displayName: whatsappNumber?.display_name || 'WhatsApp Business',
             isAiActive: whatsappNumber?.is_ai_active !== undefined ? whatsappNumber.is_ai_active : true,
             aiPrompt: whatsappNumber?.ai_prompt || 'Você é um assistente virtual prestativo.'
           });
@@ -274,13 +302,35 @@ export const useWhatsAppConnection = () => {
         }
         
         // Se chegamos aqui, algo inesperado aconteceu
-        throw new Error('Resposta inesperada da Z-API');
+        throw new Error('Resposta inesperada da Z-API: nem QR Code nem conexão existente');
       } else {
+        // Se o erro indicar que já está conectado, tratar como sucesso
+        if (qrResult.error && qrResult.error.includes('already connected')) {
+          console.log('✅ Erro indica que já está conectado, tratando como sucesso');
+          
+          // Atualizar status no Supabase
+          await saveOrUpdateWhatsAppNumberInSupabase({
+            profileId: profile.id,
+            organizationId: profile.organization_id,
+            connectionStatus: 'CONNECTED',
+            instanceId: zapiService.getConfig().instanceId,
+            displayName: 'WhatsApp Business',
+            isAiActive: whatsappNumber?.is_ai_active !== undefined ? whatsappNumber.is_ai_active : true,
+            aiPrompt: whatsappNumber?.ai_prompt || 'Você é um assistente virtual prestativo.'
+          });
+          
+          return {
+            success: true,
+            alreadyConnected: true,
+            message: 'WhatsApp já está conectado!'
+          };
+        }
+        
         throw new Error(qrResult.error || 'Falha ao gerar QR Code');
       }
     } catch (err) {
+      console.error('❌ Error in connectWhatsApp:', err);
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      console.error('❌ Error generating QR Code:', err);
       setError(errorMessage);
       throw err;
     } finally {
@@ -288,7 +338,7 @@ export const useWhatsAppConnection = () => {
     }
   };
 
-  // Verificar status da instância usando /status (MÉTODO PRINCIPAL APÓS QR CODE)
+  // Verificar status da instância usando /status
   const checkInstanceStatus = async () => {
     try {
       if (!zapiService.isConfigured()) {
@@ -299,7 +349,7 @@ export const useWhatsAppConnection = () => {
         throw new Error('Perfil do usuário não encontrado');
       }
 
-      console.log('🔍 Checking instance status via /status endpoint...');
+      console.log('🔍 Verificando status da instância via endpoint /status...');
 
       // Usar o endpoint /status para verificar conexão
       const result = await zapiService.getConnectionStatus();
@@ -309,7 +359,7 @@ export const useWhatsAppConnection = () => {
         const isConnected = statusData.connected === true;
         const connectionStatus = isConnected ? 'CONNECTED' : 'DISCONNECTED';
         
-        console.log('📊 Status retrieved:', {
+        console.log('📊 Status obtido:', {
           connected: isConnected,
           phone: statusData.phone,
           name: statusData.name,
@@ -349,7 +399,7 @@ export const useWhatsAppConnection = () => {
       } else {
         // Se o erro for esperado (não conectado ainda), não mostrar como erro
         if (result.error && result.error.includes('You need to be connected')) {
-          console.log('ℹ️ Device not connected yet - waiting for QR scan');
+          console.log('ℹ️ Dispositivo ainda não conectado - aguardando escaneamento do QR Code');
           return {
             connected: false,
             data: null,
@@ -357,7 +407,7 @@ export const useWhatsAppConnection = () => {
           };
         }
         
-        console.error('❌ Failed to get status:', result.error);
+        console.error('❌ Falha ao obter status:', result.error);
         return {
           connected: false,
           data: null,
@@ -377,7 +427,7 @@ export const useWhatsAppConnection = () => {
         throw new Error('Perfil do usuário não encontrado');
       }
 
-      console.log('🔄 Disconnecting WhatsApp...');
+      console.log('🔄 Desconectando WhatsApp...');
 
       const result = await zapiService.disconnectInstance();
       
@@ -393,7 +443,7 @@ export const useWhatsAppConnection = () => {
           aiPrompt: whatsappNumber?.ai_prompt || 'Você é um assistente virtual prestativo.'
         });
 
-        console.log('✅ WhatsApp disconnected successfully');
+        console.log('✅ WhatsApp desconectado com sucesso');
         return result;
       } else {
         throw new Error(result.error || 'Falha ao desconectar');
@@ -407,7 +457,7 @@ export const useWhatsAppConnection = () => {
   // Enviar mensagem de teste via Z-API
   const sendTestMessage = async (phoneNumber: string, message: string) => {
     try {
-      console.log(`🧪 Sending test message to ${phoneNumber} via Z-API...`);
+      console.log(`🧪 Enviando mensagem de teste para ${phoneNumber} via Z-API...`);
 
       if (!zapiService.isConfigured()) {
         throw new Error('Credenciais da Z-API não configuradas');
@@ -419,7 +469,7 @@ export const useWhatsAppConnection = () => {
         throw new Error(result.error || 'Falha ao enviar mensagem');
       }
 
-      console.log('✅ Test message sent successfully via Z-API');
+      console.log('✅ Mensagem de teste enviada com sucesso via Z-API');
       return result;
     } catch (err) {
       console.error('Error sending test message:', err);
@@ -506,15 +556,16 @@ export const useWhatsAppConnection = () => {
     error,
     profile, // Expose profile for components
     authLoading, // Expose auth loading state
-    connectWhatsApp, // FLUXO CORRETO: QR CODE PRIMEIRO!
+    connectWhatsApp,
     sendTestMessage,
     updateAIStatus,
     updateAIPrompt,
     checkZAPIStatus,
-    checkInstanceStatus, // MÉTODO PRINCIPAL: usar /status
+    checkInstanceStatus,
     handleDisconnect,
     saveOrUpdateWhatsAppNumberInSupabase,
     notifyN8NWhatsAppConnection,
+    refreshProfile, // Expose profile refresh function
     isConnected: whatsappNumber?.connection_status === 'CONNECTED',
     isZAPIConfigured: zapiService.isConfigured(),
   };

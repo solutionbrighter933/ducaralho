@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Search, 
   Filter, 
@@ -19,9 +19,14 @@ import {
   EyeOff,
   Settings,
   Info,
-  MessageCircle
+  MessageCircle,
+  ZapOff,
+  Zap
 } from 'lucide-react';
 import { useWhatsAppConversations } from '../hooks/useWhatsAppConversations';
+import { useInstagramConversations } from '../hooks/useInstagramConversations';
+import { useAIBlockedConversations } from '../hooks/useAIBlockedConversations';
+import { useAuthContext } from '../components/AuthProvider';
 
 type ConversationType = 'whatsapp' | 'instagram';
 
@@ -32,29 +37,71 @@ const Conversations: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [showChatActions, setShowChatActions] = useState(false);
   const [showChatInfo, setShowChatInfo] = useState(false);
+  const [toggleAILoading, setToggleAILoading] = useState(false);
 
-  // Hook personalizado para conversas WhatsApp
+  // Obter dados de autenticação e perfil
+  const { user, profile, loading: authLoading } = useAuthContext();
+
+  // Hook para conversas WhatsApp
   const {
-    conversas,
-    mensagens,
-    conversaSelecionada,
-    estatisticas,
-    loading,
-    error,
-    carregarConversas,
-    enviarMensagem,
-    marcarComoLida,
-    selecionarConversa,
-    setError
+    conversas: conversasWhatsApp,
+    mensagens: mensagensWhatsApp,
+    conversaSelecionada: conversaSelecionadaWhatsApp,
+    estatisticas: estatisticasWhatsApp,
+    loading: loadingWhatsApp,
+    error: errorWhatsApp,
+    carregarConversas: carregarConversasWhatsApp,
+    enviarMensagem: enviarMensagemWhatsApp,
+    marcarComoLida: marcarComoLidaWhatsApp,
+    selecionarConversa: selecionarConversaWhatsApp,
+    setError: setErrorWhatsApp
   } = useWhatsAppConversations();
 
-  // Enviar mensagem
+  // Hook para conversas Instagram
+  const {
+    conversas: conversasInstagram,
+    mensagens: mensagensInstagram,
+    conversaSelecionada: conversaSelecionadaInstagram,
+    estatisticas: estatisticasInstagram,
+    loading: loadingInstagram,
+    error: errorInstagram,
+    carregarConversas: carregarConversasInstagram,
+    marcarComoLida: marcarComoLidaInstagram,
+    selecionarConversa: selecionarConversaInstagram,
+    setError: setErrorInstagram
+  } = useInstagramConversations();
+
+  // Hook para gerenciar conversas com IA bloqueada
+  const {
+    isConversationBlocked,
+    toggleConversationBlock,
+    loading: loadingAIBlock,
+    error: aiBlockError,
+    setError: setAIBlockError
+  } = useAIBlockedConversations();
+
+  // Determinar dados baseado no tipo de conversa selecionado
+  const conversas = conversationType === 'whatsapp' ? conversasWhatsApp : conversasInstagram;
+  const mensagens = conversationType === 'whatsapp' ? mensagensWhatsApp : mensagensInstagram;
+  const conversaSelecionada = conversationType === 'whatsapp' ? conversaSelecionadaWhatsApp : conversaSelecionadaInstagram;
+  const estatisticas = conversationType === 'whatsapp' ? estatisticasWhatsApp : estatisticasInstagram;
+  const loading = conversationType === 'whatsapp' ? loadingWhatsApp : loadingInstagram;
+  const error = conversationType === 'whatsapp' ? errorWhatsApp : errorInstagram || aiBlockError;
+
+  // Limpar erro de bloqueio de IA quando mudar de conversa
+  useEffect(() => {
+    if (aiBlockError) {
+      setAIBlockError(null);
+    }
+  }, [conversaSelecionada]);
+
+  // Enviar mensagem (apenas WhatsApp por enquanto)
   const handleSendMessage = async () => {
-    if (!messageInput.trim() || !conversaSelecionada || sendingMessage) return;
+    if (!messageInput.trim() || !conversaSelecionada || sendingMessage || conversationType !== 'whatsapp') return;
 
     setSendingMessage(true);
     try {
-      await enviarMensagem(messageInput.trim());
+      await enviarMensagemWhatsApp(messageInput.trim());
       setMessageInput('');
     } catch (err) {
       console.error('❌ Erro ao enviar mensagem:', err);
@@ -64,12 +111,60 @@ const Conversations: React.FC = () => {
     }
   };
 
+  // Alternar bloqueio de IA para a conversa atual
+  const handleToggleAI = async () => {
+    if (!conversaSelecionada) return;
+    
+    // Verificar se o perfil e a organização estão carregados
+    if (!profile?.id || !profile?.organization_id || authLoading) {
+      alert('Aguarde o carregamento completo do perfil antes de alterar o status da IA');
+      return;
+    }
+    
+    setToggleAILoading(true);
+    try {
+      // Obter o identificador da conversa baseado no tipo
+      const conversaId = conversationType === 'whatsapp' 
+        ? conversaSelecionada.conversa_id // Para WhatsApp, usamos o conversa_id
+        : conversaSelecionada.sender_id; // Para Instagram, usamos o sender_id
+      
+      // Verificar se o conversaId é válido
+      if (!conversaId) {
+        throw new Error('ID da conversa não encontrado');
+      }
+      
+      console.log(`🔄 Alternando bloqueio de IA para ${conversationType}: ${conversaId}`);
+      
+      await toggleConversationBlock(conversaId);
+    } catch (err) {
+      console.error('❌ Erro ao alternar bloqueio de IA:', err);
+      alert(`Erro ao ${isCurrentConversationBlocked() ? 'ativar' : 'desativar'} IA: ${err instanceof Error ? err.message : 'Erro desconhecido'}`);
+    } finally {
+      setToggleAILoading(false);
+    }
+  };
+
+  // Verificar se a IA está bloqueada para a conversa atual
+  const isCurrentConversationBlocked = (): boolean => {
+    if (!conversaSelecionada) return false;
+    
+    const conversaId = conversationType === 'whatsapp' 
+      ? conversaSelecionada.conversa_id // Para WhatsApp, usamos o conversa_id
+      : conversaSelecionada.sender_id; // Para Instagram, usamos o sender_id
+    
+    return isConversationBlocked(conversaId);
+  };
+
   // Marcar como lida
   const handleMarkAsRead = async () => {
     if (!conversaSelecionada) return;
 
     try {
-      await marcarComoLida();
+      if (conversationType === 'whatsapp') {
+        await marcarComoLidaWhatsApp();
+      } else {
+        await marcarComoLidaInstagram();
+      }
     } catch (err) {
       console.error('❌ Erro ao marcar como lida:', err);
     }
@@ -79,7 +174,12 @@ const Conversations: React.FC = () => {
   const handleSelectConversation = async (conversa: any) => {
     setShowChatActions(false);
     setShowChatInfo(false);
-    await selecionarConversa(conversa);
+    
+    if (conversationType === 'whatsapp') {
+      await selecionarConversaWhatsApp(conversa);
+    } else {
+      await selecionarConversaInstagram(conversa);
+    }
   };
 
   // Atualizar tipo de conversa
@@ -102,13 +202,25 @@ const Conversations: React.FC = () => {
     if (!searchTerm.trim()) return true;
     
     const searchLower = searchTerm.toLowerCase();
-    const nomeContato = (conversa.nome_contato || '').toLowerCase();
-    const numeroContato = (conversa.numero_contato || '').toLowerCase();
-    const ultimaMensagem = (conversa.ultima_mensagem || '').toLowerCase();
     
-    return nomeContato.includes(searchLower) || 
-           numeroContato.includes(searchLower) || 
-           ultimaMensagem.includes(searchLower);
+    if (conversationType === 'whatsapp') {
+      const nomeContato = (conversa.nome_contato || '').toLowerCase();
+      const numeroContato = (conversa.numero_contato || '').toLowerCase();
+      const ultimaMensagem = (conversa.ultima_mensagem || '').toLowerCase();
+      
+      return nomeContato.includes(searchLower) || 
+             numeroContato.includes(searchLower) || 
+             ultimaMensagem.includes(searchLower);
+    } else {
+      // Instagram
+      const nomeContato = (conversa.nome_contato || '').toLowerCase();
+      const senderId = (conversa.sender_id || '').toLowerCase();
+      const ultimaMensagem = (conversa.ultima_mensagem || '').toLowerCase();
+      
+      return nomeContato.includes(searchLower) || 
+             senderId.includes(searchLower) || 
+             ultimaMensagem.includes(searchLower);
+    }
   });
 
   // Formatar tempo
@@ -130,6 +242,28 @@ const Conversations: React.FC = () => {
     return new Date(a.data_hora).getTime() - new Date(b.data_hora).getTime();
   });
 
+  // Função para recarregar conversas
+  const handleRefresh = () => {
+    if (conversationType === 'whatsapp') {
+      carregarConversasWhatsApp();
+    } else {
+      carregarConversasInstagram();
+    }
+  };
+
+  // Função para limpar erro
+  const handleClearError = () => {
+    if (conversationType === 'whatsapp') {
+      setErrorWhatsApp(null);
+    } else {
+      setErrorInstagram(null);
+    }
+    
+    if (aiBlockError) {
+      setAIBlockError(null);
+    }
+  };
+
   if (loading) {
     return (
       <div className="h-full flex items-center justify-center bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
@@ -149,13 +283,13 @@ const Conversations: React.FC = () => {
           <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">{error}</p>
           <div className="flex space-x-2 justify-center">
             <button
-              onClick={carregarConversas}
+              onClick={handleRefresh}
               className="px-4 py-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition-colors"
             >
               Tentar Novamente
             </button>
             <button
-              onClick={() => setError(null)}
+              onClick={handleClearError}
               className="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors"
             >
               Limpar Erro
@@ -175,7 +309,7 @@ const Conversations: React.FC = () => {
             <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Conversas</h2>
             <div className="flex space-x-1">
               <button
-                onClick={carregarConversas}
+                onClick={handleRefresh}
                 disabled={loading}
                 className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
                 title="Atualizar conversas"
@@ -198,7 +332,7 @@ const Conversations: React.FC = () => {
               <MessageSquare className="w-4 h-4" />
               <span>WhatsApp</span>
               <span className="bg-white/20 text-xs px-1.5 py-0.5 rounded-full">
-                {conversasFiltradas.length}
+                {conversationType === 'whatsapp' ? conversasFiltradas.length : conversasWhatsApp.length}
               </span>
             </button>
             <button
@@ -211,6 +345,9 @@ const Conversations: React.FC = () => {
             >
               <Instagram className="w-4 h-4" />
               <span>Instagram</span>
+              <span className="bg-white/20 text-xs px-1.5 py-0.5 rounded-full">
+                {conversationType === 'instagram' ? conversasFiltradas.length : conversasInstagram.length}
+              </span>
             </button>
           </div>
 
@@ -242,37 +379,56 @@ const Conversations: React.FC = () => {
         </div>
 
         <div className="flex-1 overflow-y-auto">
-          {conversationType === 'whatsapp' ? (
-            conversasFiltradas.length > 0 ? (
-              conversasFiltradas.map((conversa) => (
+          {conversasFiltradas.length > 0 ? (
+            conversasFiltradas.map((conversa) => {
+              // Determinar o identificador da conversa baseado no tipo
+              const conversaId = conversationType === 'whatsapp' 
+                ? conversa.conversa_id // Para WhatsApp
+                : conversa.sender_id; // Para Instagram
+              
+              // Verificar se a IA está bloqueada para esta conversa
+              const isAIBlocked = isConversationBlocked(conversaId);
+              
+              return (
                 <div
-                  key={conversa.conversa_id}
+                  key={conversationType === 'whatsapp' ? conversa.conversa_id : conversa.sender_id}
                   onClick={() => handleSelectConversation(conversa)}
                   className={`p-4 border-b border-gray-100 dark:border-gray-700 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors ${
-                    conversaSelecionada?.conversa_id === conversa.conversa_id ? 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-200 dark:border-indigo-800' : ''
+                    conversaSelecionada && (
+                      conversationType === 'whatsapp' 
+                        ? conversaSelecionada.conversa_id === conversa.conversa_id
+                        : conversaSelecionada.sender_id === conversa.sender_id
+                    ) ? 'bg-indigo-50 dark:bg-indigo-900/20 border-indigo-200 dark:border-indigo-800' : ''
                   }`}
                 >
                   <div className="flex items-center space-x-3">
                     <div className="relative">
-                      <div className="w-12 h-12 rounded-full bg-green-500 flex items-center justify-center text-white font-semibold">
-                        <User className="w-6 h-6" />
+                      <div className={`w-12 h-12 rounded-full flex items-center justify-center text-white font-semibold ${
+                        conversationType === 'whatsapp' ? 'bg-green-500' : 'bg-gradient-to-r from-purple-500 to-pink-500'
+                      }`}>
+                        {conversationType === 'whatsapp' ? <User className="w-6 h-6" /> : <Instagram className="w-6 h-6" />}
                       </div>
-                      {conversa.status === 'ativa' && (
-                        <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 border-2 border-white dark:border-gray-800 rounded-full"></div>
+                      <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 border-2 border-white dark:border-gray-800 rounded-full"></div>
+                      
+                      {/* Indicador de IA bloqueada */}
+                      {isAIBlocked && (
+                        <div className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 border-2 border-white dark:border-gray-800 rounded-full flex items-center justify-center">
+                          <ZapOff className="w-3 h-3 text-white" />
+                        </div>
                       )}
                     </div>
                     
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between">
                         <h3 className="font-medium text-gray-900 dark:text-white truncate">
-                          {conversa.nome_contato || conversa.numero_contato}
+                          {conversa.nome_contato || (conversationType === 'whatsapp' ? conversa.numero_contato : conversa.sender_id)}
                         </h3>
                         <span className="text-xs text-gray-500 dark:text-gray-400">
                           {conversa.ultima_atividade ? formatTime(conversa.ultima_atividade) : ''}
                         </span>
                       </div>
                       <p className="text-sm text-gray-600 dark:text-gray-400 truncate mt-1">
-                        {conversa.numero_contato}
+                        {conversationType === 'whatsapp' ? conversa.numero_contato : `@${conversa.sender_id}`}
                       </p>
                       {conversa.ultima_mensagem && (
                         <p className="text-sm text-gray-500 dark:text-gray-500 truncate mt-1">
@@ -284,7 +440,9 @@ const Conversations: React.FC = () => {
                           {conversa.total_mensagens} mensagens
                         </span>
                         {conversa.nao_lidas > 0 && (
-                          <span className="bg-green-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+                          <span className={`text-white text-xs font-bold px-2 py-0.5 rounded-full ${
+                            conversationType === 'whatsapp' ? 'bg-green-500' : 'bg-purple-500'
+                          }`}>
                             {conversa.nao_lidas}
                           </span>
                         )}
@@ -292,26 +450,20 @@ const Conversations: React.FC = () => {
                     </div>
                   </div>
                 </div>
-              ))
-            ) : (
-              <div className="p-8 text-center">
-                <MessageSquare className="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
-                <p className="text-gray-500 dark:text-gray-400 text-sm">
-                  {searchTerm ? 'Nenhuma conversa encontrada' : 'Nenhuma conversa disponível'}
-                </p>
-                <p className="text-gray-400 dark:text-gray-500 text-xs mt-1">
-                  {searchTerm ? 'Tente ajustar sua busca' : 'As conversas aparecerão aqui quando você receber mensagens'}
-                </p>
-              </div>
-            )
+              );
+            })
           ) : (
             <div className="p-8 text-center">
-              <Instagram className="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
+              {conversationType === 'whatsapp' ? (
+                <MessageSquare className="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
+              ) : (
+                <Instagram className="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
+              )}
               <p className="text-gray-500 dark:text-gray-400 text-sm">
-                Instagram Direct em desenvolvimento
+                {searchTerm ? 'Nenhuma conversa encontrada' : `Nenhuma conversa de ${conversationType === 'whatsapp' ? 'WhatsApp' : 'Instagram'} disponível`}
               </p>
               <p className="text-gray-400 dark:text-gray-500 text-xs mt-1">
-                Esta funcionalidade estará disponível em breve
+                {searchTerm ? 'Tente ajustar sua busca' : `As conversas de ${conversationType === 'whatsapp' ? 'WhatsApp' : 'Instagram'} aparecerão aqui quando você receber mensagens`}
               </p>
             </div>
           )}
@@ -325,16 +477,22 @@ const Conversations: React.FC = () => {
             {/* Cabeçalho do Chat */}
             <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
               <div className="flex items-center space-x-3">
-                <div className="w-10 h-10 rounded-full bg-green-500 flex items-center justify-center text-white font-semibold">
-                  <User className="w-5 h-5" />
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-semibold ${
+                  conversationType === 'whatsapp' ? 'bg-green-500' : 'bg-gradient-to-r from-purple-500 to-pink-500'
+                }`}>
+                  {conversationType === 'whatsapp' ? <User className="w-5 h-5" /> : <Instagram className="w-5 h-5" />}
                 </div>
                 <div>
                   <h3 className="font-medium text-gray-900 dark:text-white">
-                    {conversaSelecionada.nome_contato || conversaSelecionada.numero_contato}
+                    {conversaSelecionada.nome_contato || (conversationType === 'whatsapp' ? conversaSelecionada.numero_contato : conversaSelecionada.sender_id)}
                   </h3>
                   <div className="flex items-center space-x-2">
-                    <span className="text-xs px-2 py-1 rounded-full font-medium bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300">
-                      WhatsApp
+                    <span className={`text-xs px-2 py-1 rounded-full font-medium ${
+                      conversationType === 'whatsapp' 
+                        ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300'
+                        : 'bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-300'
+                    }`}>
+                      {conversationType === 'whatsapp' ? 'WhatsApp' : 'Instagram'}
                     </span>
                     <div className="flex items-center space-x-1 px-2 py-1 rounded-full text-xs font-medium bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300">
                       <MessageCircle className="w-3 h-3" />
@@ -346,11 +504,44 @@ const Conversations: React.FC = () => {
                         <span>{conversaSelecionada.nao_lidas} não lidas</span>
                       </div>
                     )}
+                    
+                    {/* Indicador de status da IA */}
+                    {isCurrentConversationBlocked() ? (
+                      <div className="flex items-center space-x-1 px-2 py-1 rounded-full text-xs font-medium bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300">
+                        <ZapOff className="w-3 h-3" />
+                        <span>IA Desativada</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center space-x-1 px-2 py-1 rounded-full text-xs font-medium bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300">
+                        <Zap className="w-3 h-3" />
+                        <span>IA Ativa</span>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
               
               <div className="flex items-center space-x-2">
+                {/* Botão para alternar IA */}
+                <button 
+                  onClick={handleToggleAI}
+                  disabled={toggleAILoading || authLoading || !profile?.id || !profile?.organization_id}
+                  className={`p-2 ${
+                    isCurrentConversationBlocked() 
+                      ? 'text-green-600 dark:text-green-400 hover:text-green-800 dark:hover:text-green-300 hover:bg-green-100 dark:hover:bg-green-900/30' 
+                      : 'text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300 hover:bg-red-100 dark:hover:bg-red-900/30'
+                  } rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed`}
+                  title={isCurrentConversationBlocked() ? "Ativar IA" : "Desativar IA"}
+                >
+                  {toggleAILoading ? (
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                  ) : isCurrentConversationBlocked() ? (
+                    <Zap className="w-5 h-5" />
+                  ) : (
+                    <ZapOff className="w-5 h-5" />
+                  )}
+                </button>
+                
                 <button 
                   onClick={handleMarkAsRead}
                   className="p-2 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
@@ -374,52 +565,44 @@ const Conversations: React.FC = () => {
                   <div
                     key={mensagem.id}
                     className={`flex ${
-                      // CORREÇÃO DEFINITIVA BASEADA NA IMAGEM:
-                      // "sent" = mensagem que EU ENVIEI = lado DIREITO (bolha verde)
-                      // "received" = mensagem que EU RECEBI = lado ESQUERDO (bolha escura)
-                      mensagem.direcao === 'sent' ? 'justify-end' : 'justify-start'
+                      // LÓGICA CORRIGIDA PARA INSTAGRAM:
+                      // sent = mensagem que EU ENVIEI = lado DIREITA (bolha azul/roxa)
+                      // RECEIVED = mensagem que EU RECEBI = lado ESQUERDA (bolha escura)
+                      mensagem.direcao.toLowerCase() === 'sent' ? 'justify-end' : 'justify-start'
                     }`}
                   >
                     <div className={`max-w-xs lg:max-w-md px-4 py-3 rounded-2xl ${
-                      mensagem.direcao === 'sent'
-                        ? 'bg-green-500 text-white rounded-br-sm' // SENT = DIREITA = BOLHA VERDE
-                        : 'bg-gray-700 dark:bg-gray-600 text-white rounded-bl-sm' // RECEIVED = ESQUERDA = BOLHA ESCURA
+                      mensagem.direcao.toLowerCase() === 'sent'
+                        ? conversationType === 'whatsapp'
+                          ? 'bg-green-500 text-white rounded-br-sm' // WhatsApp sent = verde
+                          : 'bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-br-sm' // Instagram sent = roxo/rosa
+                        : 'bg-gray-700 dark:bg-gray-600 text-white rounded-bl-sm' // Received = escuro
                     }`}>
                       <p className="text-sm leading-relaxed">{mensagem.mensagem}</p>
                       <div className="flex items-center justify-between mt-2">
                         <p className={`text-xs ${
-                          mensagem.direcao === 'sent' 
-                            ? 'text-green-100' 
+                          mensagem.direcao.toLowerCase() === 'sent' 
+                            ? conversationType === 'whatsapp' ? 'text-green-100' : 'text-purple-100'
                             : 'text-gray-300'
                         }`}>
                           {formatTime(mensagem.data_hora)}
                         </p>
                         <div className="flex items-center space-x-1">
-                          {/* Indicador de direção mais claro */}
+                          {/* Indicador de direção */}
                           <span className={`text-xs font-medium ${
-                            mensagem.direcao === 'sent' 
-                              ? 'text-green-100' 
+                            mensagem.direcao.toLowerCase() === 'sent' 
+                              ? conversationType === 'whatsapp' ? 'text-green-100' : 'text-purple-100'
                               : 'text-gray-300'
                           }`}>
-                            {mensagem.direcao === 'sent' ? '📤' : '📥'}
+                            {mensagem.direcao.toLowerCase() === 'sent' ? '📤' : '📥'}
                           </span>
-                          
-                          {/* Status de entrega para mensagens enviadas */}
-                          {mensagem.direcao === 'sent' && (
-                            <span className="text-xs text-green-100">
-                              {mensagem.status_entrega === 'read' && '✓✓'}
-                              {mensagem.status_entrega === 'delivered' && '✓'}
-                              {mensagem.status_entrega === 'sent' && '→'}
-                              {mensagem.status_entrega === 'pending' && '⏳'}
-                            </span>
-                          )}
                         </div>
                       </div>
                       
-                      {/* Nome do contato para mensagens recebidas */}
-                      {mensagem.direcao === 'received' && mensagem.nome_contato && (
+                      {/* Sender ID para mensagens recebidas do Instagram */}
+                      {conversationType === 'instagram' && mensagem.direcao.toLowerCase() === 'received' && (
                         <p className="text-xs text-gray-300 mt-1 font-medium">
-                          {mensagem.nome_contato}
+                          @{mensagem.sender_id}
                         </p>
                       )}
                     </div>
@@ -428,54 +611,79 @@ const Conversations: React.FC = () => {
               ) : (
                 <div className="flex-1 flex items-center justify-center">
                   <div className="text-center">
-                    <MessageSquare className="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
+                    {conversationType === 'whatsapp' ? (
+                      <MessageSquare className="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
+                    ) : (
+                      <Instagram className="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
+                    )}
                     <p className="text-gray-500 dark:text-gray-400 text-sm">
                       Nenhuma mensagem ainda
                     </p>
                     <p className="text-gray-400 dark:text-gray-500 text-xs mt-1">
-                      Envie a primeira mensagem para iniciar a conversa
+                      {conversationType === 'whatsapp' 
+                        ? 'Envie a primeira mensagem para iniciar a conversa'
+                        : 'As mensagens do Instagram aparecerão aqui'
+                      }
                     </p>
                   </div>
                 </div>
               )}
             </div>
 
-            {/* Input de Mensagem */}
-            <div className="p-4 border-t border-gray-200 dark:border-gray-700">
-              <div className="flex items-center space-x-2">
-                <input
-                  type="text"
-                  value={messageInput}
-                  onChange={(e) => setMessageInput(e.target.value)}
-                  onKeyPress={handleKeyPress}
-                  placeholder="Digite sua mensagem..."
-                  disabled={sendingMessage}
-                  className="flex-1 px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-2xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 disabled:opacity-50"
-                />
-                <button
-                  onClick={handleSendMessage}
-                  disabled={!messageInput.trim() || sendingMessage}
-                  className="flex items-center space-x-2 px-6 py-3 bg-green-500 text-white rounded-2xl hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {sendingMessage ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Send className="w-4 h-4" />
-                  )}
-                  <span>Enviar</span>
-                </button>
+            {/* Input de Mensagem - Apenas para WhatsApp */}
+            {conversationType === 'whatsapp' && (
+              <div className="p-4 border-t border-gray-200 dark:border-gray-700">
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="text"
+                    value={messageInput}
+                    onChange={(e) => setMessageInput(e.target.value)}
+                    onKeyPress={handleKeyPress}
+                    placeholder="Digite sua mensagem..."
+                    disabled={sendingMessage}
+                    className="flex-1 px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-2xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 disabled:opacity-50"
+                  />
+                  <button
+                    onClick={handleSendMessage}
+                    disabled={!messageInput.trim() || sendingMessage}
+                    className="flex items-center space-x-2 px-6 py-3 bg-green-500 text-white rounded-2xl hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {sendingMessage ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Send className="w-4 h-4" />
+                    )}
+                    <span>Enviar</span>
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
+
+            {/* Aviso para Instagram */}
+            {conversationType === 'instagram' && (
+              <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-purple-50 dark:bg-purple-900/20">
+                <div className="flex items-center space-x-2 text-purple-700 dark:text-purple-300">
+                  <Instagram className="w-4 h-4" />
+                  <span className="text-sm">
+                    Visualização de mensagens do Instagram. Envio de mensagens não disponível nesta versão.
+                  </span>
+                </div>
+              </div>
+            )}
           </>
         ) : (
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center">
-              <MessageSquare className="w-16 h-16 text-gray-300 dark:text-gray-600 mx-auto mb-4" />
+              {conversationType === 'whatsapp' ? (
+                <MessageSquare className="w-16 h-16 text-gray-300 dark:text-gray-600 mx-auto mb-4" />
+              ) : (
+                <Instagram className="w-16 h-16 text-gray-300 dark:text-gray-600 mx-auto mb-4" />
+              )}
               <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
                 Selecione uma conversa
               </h3>
               <p className="text-gray-500 dark:text-gray-400 mb-4">
-                Escolha uma conversa da lista para começar a visualizar as mensagens
+                Escolha uma conversa de {conversationType === 'whatsapp' ? 'WhatsApp' : 'Instagram'} da lista para começar a visualizar as mensagens
               </p>
             </div>
           </div>

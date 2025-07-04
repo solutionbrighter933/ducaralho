@@ -121,7 +121,7 @@ export class ZAPIService {
 
       // Para outros endpoints, processar normalmente
       const responseText = await response.text();
-      console.log(`📄 Z-API Response Body: ${responseText}`);
+      console.log(`📄 Z-API Response Body: ${responseText.substring(0, 200)}...`);
 
       let data;
       try {

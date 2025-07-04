@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Bell, Search, ChevronDown, LogOut, User, MessageSquare, Users, X } from 'lucide-react';
+import { Bell, Search, ChevronDown, LogOut, User, MessageSquare, Users, X, Instagram } from 'lucide-react';
 import { useAuthContext } from './AuthProvider';
 import { supabase } from '../lib/supabase';
 
@@ -9,12 +9,14 @@ interface HeaderProps {
 
 interface SearchResult {
   type: 'conversation' | 'contact';
+  platform: 'whatsapp' | 'instagram';
   title: string;
   subtitle: string;
   icon: any;
   action: () => void;
   conversa_id?: string;
   numero_contato?: string;
+  sender_id?: string;
   data_hora?: string;
 }
 
@@ -49,7 +51,7 @@ const Header: React.FC<HeaderProps> = ({ setActiveSection }) => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Função para buscar dados reais da aba Conversas (tabelas conversas_whatsapp e mensagens_whatsapp)
+  // Função para buscar dados reais da aba Conversas (tabelas conversas_whatsapp, mensagens_whatsapp e conversas_instagram)
   const searchInConversationsData = async (query: string): Promise<SearchResult[]> => {
     if (!query.trim() || !user?.id) return [];
 
@@ -59,39 +61,52 @@ const Header: React.FC<HeaderProps> = ({ setActiveSection }) => {
 
       console.log('🔍 Searching in conversations data for:', searchTerm);
 
-      // 1. Buscar conversas que correspondem ao termo
-      const { data: conversasData, error: conversasError } = await supabase
+      // 1. Buscar conversas WhatsApp que correspondem ao termo
+      const { data: conversasWhatsAppData, error: conversasWhatsAppError } = await supabase
         .from('conversas_whatsapp')
         .select('conversa_id, numero_contato, nome_contato, ultima_mensagem, ultima_atividade, total_mensagens, nao_lidas')
         .eq('user_id', user.id)
         .or(`nome_contato.ilike.%${searchTerm}%,numero_contato.ilike.%${searchTerm}%,ultima_mensagem.ilike.%${searchTerm}%`)
         .order('ultima_atividade', { ascending: false })
-        .limit(10);
+        .limit(5);
 
-      if (conversasError) {
-        console.error('❌ Erro ao buscar conversas:', conversasError);
+      if (conversasWhatsAppError) {
+        console.error('❌ Erro ao buscar conversas WhatsApp:', conversasWhatsAppError);
       }
 
-      // 2. Buscar mensagens específicas que contenham o termo
-      const { data: mensagensData, error: mensagensError } = await supabase
+      // 2. Buscar mensagens WhatsApp específicas que contenham o termo
+      const { data: mensagensWhatsAppData, error: mensagensWhatsAppError } = await supabase
         .from('mensagens_whatsapp')
         .select('conversa_id, numero, mensagem, nome_contato, data_hora, direcao')
         .eq('user_id', user.id)
         .ilike('mensagem', `%${searchTerm}%`)
         .order('data_hora', { ascending: false })
-        .limit(15);
+        .limit(5);
 
-      if (mensagensError) {
-        console.error('❌ Erro ao buscar mensagens:', mensagensError);
+      if (mensagensWhatsAppError) {
+        console.error('❌ Erro ao buscar mensagens WhatsApp:', mensagensWhatsAppError);
+      }
+
+      // 3. Buscar conversas Instagram que correspondem ao termo
+      const { data: conversasInstagramData, error: conversasInstagramError } = await supabase
+        .from('conversas_instagram')
+        .select('sender_id, mensagem, data_hora')
+        .eq('user_id', user.id)
+        .or(`sender_id.ilike.%${searchTerm}%,mensagem.ilike.%${searchTerm}%`)
+        .order('data_hora', { ascending: false })
+        .limit(5);
+
+      if (conversasInstagramError) {
+        console.error('❌ Erro ao buscar conversas Instagram:', conversasInstagramError);
       }
 
       const results: SearchResult[] = [];
 
-      // 3. Processar conversas encontradas
-      if (conversasData && conversasData.length > 0) {
-        console.log('📋 Found conversations:', conversasData.length);
+      // 4. Processar conversas WhatsApp encontradas
+      if (conversasWhatsAppData && conversasWhatsAppData.length > 0) {
+        console.log('📋 Found WhatsApp conversations:', conversasWhatsAppData.length);
         
-        conversasData.forEach(conversa => {
+        conversasWhatsAppData.forEach(conversa => {
           const nomeContato = conversa.nome_contato || conversa.numero_contato || 'Contato';
           const ultimaMensagem = conversa.ultima_mensagem || '';
           const mensagemTruncada = ultimaMensagem.length > 50 
@@ -104,11 +119,12 @@ const Header: React.FC<HeaderProps> = ({ setActiveSection }) => {
 
           results.push({
             type: 'conversation',
+            platform: 'whatsapp',
             title: nomeContato,
             subtitle: `${conversa.total_mensagens || 0} mensagens${conversa.nao_lidas > 0 ? ` • ${conversa.nao_lidas} não lidas` : ''} • ${dataFormatada}`,
             icon: MessageSquare,
             action: () => {
-              console.log('🎯 Navigating to conversations for:', conversa.conversa_id);
+              console.log('🎯 Navigating to WhatsApp conversations for:', conversa.conversa_id);
               setActiveSection?.('conversations');
               setSearchQuery('');
               setShowSearchResults(false);
@@ -120,13 +136,13 @@ const Header: React.FC<HeaderProps> = ({ setActiveSection }) => {
         });
       }
 
-      // 4. Processar mensagens específicas encontradas (evitar duplicatas de conversas)
-      if (mensagensData && mensagensData.length > 0) {
-        console.log('📨 Found messages:', mensagensData.length);
+      // 5. Processar mensagens WhatsApp específicas encontradas (evitar duplicatas de conversas)
+      if (mensagensWhatsAppData && mensagensWhatsAppData.length > 0) {
+        console.log('📨 Found WhatsApp messages:', mensagensWhatsAppData.length);
         
         const conversasJaAdicionadas = new Set(results.map(r => r.conversa_id));
         
-        mensagensData.forEach(mensagem => {
+        mensagensWhatsAppData.forEach(mensagem => {
           if (!conversasJaAdicionadas.has(mensagem.conversa_id)) {
             const nomeContato = mensagem.nome_contato || mensagem.numero || 'Contato';
             const mensagemTruncada = mensagem.mensagem.length > 40 
@@ -138,11 +154,12 @@ const Header: React.FC<HeaderProps> = ({ setActiveSection }) => {
 
             results.push({
               type: 'conversation',
+              platform: 'whatsapp',
               title: nomeContato,
               subtitle: `${direcaoTexto} em ${dataFormatada}: "${mensagemTruncada}"`,
               icon: MessageSquare,
               action: () => {
-                console.log('🎯 Navigating to conversations for message:', mensagem.conversa_id);
+                console.log('🎯 Navigating to WhatsApp conversations for message:', mensagem.conversa_id);
                 setActiveSection?.('conversations');
                 setSearchQuery('');
                 setShowSearchResults(false);
@@ -157,9 +174,53 @@ const Header: React.FC<HeaderProps> = ({ setActiveSection }) => {
         });
       }
 
-      // 5. Adicionar contatos únicos baseados nos números encontrados
+      // 6. Processar conversas Instagram encontradas
+      if (conversasInstagramData && conversasInstagramData.length > 0) {
+        console.log('📸 Found Instagram conversations:', conversasInstagramData.length);
+        
+        // Agrupar mensagens por sender_id para evitar duplicatas
+        const senderGroups = conversasInstagramData.reduce((groups, item) => {
+          const group = groups[item.sender_id] || [];
+          group.push(item);
+          groups[item.sender_id] = group;
+          return groups;
+        }, {} as Record<string, typeof conversasInstagramData>);
+        
+        // Adicionar um resultado por sender_id
+        Object.entries(senderGroups).forEach(([senderId, messages]) => {
+          // Ordenar mensagens por data (mais recente primeiro)
+          const sortedMessages = [...messages].sort((a, b) => 
+            new Date(b.data_hora).getTime() - new Date(a.data_hora).getTime()
+          );
+          
+          const latestMessage = sortedMessages[0];
+          const mensagemTruncada = latestMessage.mensagem.length > 40 
+            ? latestMessage.mensagem.substring(0, 40) + '...' 
+            : latestMessage.mensagem;
+          
+          const dataFormatada = new Date(latestMessage.data_hora).toLocaleDateString('pt-BR');
+
+          results.push({
+            type: 'conversation',
+            platform: 'instagram',
+            title: `@${senderId}`,
+            subtitle: `Instagram • ${dataFormatada}: "${mensagemTruncada}"`,
+            icon: Instagram,
+            action: () => {
+              console.log('🎯 Navigating to Instagram conversations for:', senderId);
+              setActiveSection?.('conversations');
+              setSearchQuery('');
+              setShowSearchResults(false);
+            },
+            sender_id: senderId,
+            data_hora: latestMessage.data_hora
+          });
+        });
+      }
+
+      // 7. Adicionar contatos únicos baseados nos números encontrados
       const numerosUnicos = new Set<string>();
-      results.forEach(result => {
+      results.filter(r => r.platform === 'whatsapp').forEach(result => {
         if (result.numero_contato && !numerosUnicos.has(result.numero_contato)) {
           numerosUnicos.add(result.numero_contato);
         }
@@ -171,8 +232,9 @@ const Header: React.FC<HeaderProps> = ({ setActiveSection }) => {
         if (conversaDoNumero) {
           results.push({
             type: 'contact',
+            platform: 'whatsapp',
             title: conversaDoNumero.title,
-            subtitle: `Contato: ${numero}`,
+            subtitle: `Contato WhatsApp: ${numero}`,
             icon: Users,
             action: () => {
               console.log('🎯 Navigating to conversations for contact:', numero);
@@ -185,11 +247,43 @@ const Header: React.FC<HeaderProps> = ({ setActiveSection }) => {
         }
       });
 
-      // 6. Remover duplicatas e limitar resultados finais
+      // 8. Adicionar contatos Instagram únicos
+      const senderIdsUnicos = new Set<string>();
+      results.filter(r => r.platform === 'instagram').forEach(result => {
+        if (result.sender_id && !senderIdsUnicos.has(result.sender_id)) {
+          senderIdsUnicos.add(result.sender_id);
+        }
+      });
+
+      // Limitar contatos Instagram a 3
+      Array.from(senderIdsUnicos).slice(0, 3).forEach(senderId => {
+        const conversaDoSender = results.find(r => r.sender_id === senderId && r.platform === 'instagram');
+        if (conversaDoSender) {
+          results.push({
+            type: 'contact',
+            platform: 'instagram',
+            title: `@${senderId}`,
+            subtitle: `Contato Instagram`,
+            icon: Users,
+            action: () => {
+              console.log('🎯 Navigating to Instagram conversations for contact:', senderId);
+              setActiveSection?.('conversations');
+              setSearchQuery('');
+              setShowSearchResults(false);
+            },
+            sender_id: senderId
+          });
+        }
+      });
+
+      // 9. Remover duplicatas e limitar resultados finais
       const resultadosUnicos = results.filter((result, index, self) => 
         index === self.findIndex(r => 
           r.type === result.type && 
-          (r.conversa_id === result.conversa_id || r.numero_contato === result.numero_contato)
+          r.platform === result.platform &&
+          ((r.conversa_id === result.conversa_id) || 
+           (r.numero_contato === result.numero_contato) ||
+           (r.sender_id === result.sender_id))
         )
       ).slice(0, 8); // Limitar a 8 resultados
 
@@ -311,14 +405,14 @@ const Header: React.FC<HeaderProps> = ({ setActiveSection }) => {
                           className="w-full px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center space-x-3"
                         >
                           <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                            result.type === 'conversation' 
+                            result.platform === 'whatsapp' 
                               ? 'bg-green-100 dark:bg-green-900/30' 
-                              : 'bg-blue-100 dark:bg-blue-900/30'
+                              : 'bg-purple-100 dark:bg-purple-900/30'
                           }`}>
                             <Icon className={`w-4 h-4 ${
-                              result.type === 'conversation' 
+                              result.platform === 'whatsapp' 
                                 ? 'text-green-600 dark:text-green-400' 
-                                : 'text-blue-600 dark:text-blue-400'
+                                : 'text-purple-600 dark:text-purple-400'
                             }`} />
                           </div>
                           <div className="flex-1 min-w-0">
@@ -331,10 +425,14 @@ const Header: React.FC<HeaderProps> = ({ setActiveSection }) => {
                           </div>
                           <span className={`text-xs px-2 py-1 rounded-full ${
                             result.type === 'conversation' 
-                              ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300' 
-                              : 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                              ? result.platform === 'whatsapp'
+                                ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
+                                : 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300'
+                              : result.platform === 'whatsapp'
+                                ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                                : 'bg-pink-100 dark:bg-pink-900/30 text-pink-700 dark:text-pink-300'
                           }`}>
-                            {result.type === 'conversation' ? 'Conversa' : 'Contato'}
+                            {result.type === 'conversation' ? 'Conversa' : 'Contato'} {result.platform === 'whatsapp' ? 'WhatsApp' : 'Instagram'}
                           </span>
                         </button>
                       );
@@ -347,7 +445,7 @@ const Header: React.FC<HeaderProps> = ({ setActiveSection }) => {
                       Nenhuma conversa encontrada para "{searchQuery}"
                     </p>
                     <p className="text-gray-400 dark:text-gray-500 text-xs mt-1">
-                      Tente buscar por nome do contato, número ou conteúdo da mensagem
+                      Tente buscar por nome do contato, número, username ou conteúdo da mensagem
                     </p>
                   </div>
                 ) : null}

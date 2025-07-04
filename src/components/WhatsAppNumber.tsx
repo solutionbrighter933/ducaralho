@@ -9,12 +9,14 @@ const WhatsAppNumber: React.FC = () => {
     loading: supabaseLoading,
     error: supabaseError,
     isConnected,
-    checkInstanceStatus, // MÉTODO PRINCIPAL: usar /status para obter número de telefone
-    connectWhatsApp, // FLUXO CORRETO: QR CODE PRIMEIRO!
+    checkInstanceStatus,
+    connectWhatsApp,
     sendTestMessage,
     handleDisconnect,
     profile,
-    authLoading
+    authLoading,
+    refreshProfile,
+    saveOrUpdateWhatsAppNumberInSupabase
   } = useWhatsAppConnection();
 
   const [showQRModal, setShowQRModal] = useState(false);
@@ -27,8 +29,9 @@ const WhatsAppNumber: React.FC = () => {
   const [instanceInfo, setInstanceInfo] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [monitoringActive, setMonitoringActive] = useState(false);
-  const [monitoringInterval, setMonitoringInterval] = useState<NodeJS.Timeout | null>(null);
+  const [qrCodeLoading, setQrCodeLoading] = useState(false);
+  const [checkingConnection, setCheckingConnection] = useState(false);
+  const [profileRetryCount, setProfileRetryCount] = useState(0);
 
   // Verificar se a Z-API está configurada
   const isZAPIConfigured = zapiService.isConfigured();
@@ -40,16 +43,20 @@ const WhatsAppNumber: React.FC = () => {
     }
   }, [whatsappNumber]);
 
-  // Limpar o intervalo de monitoramento quando o componente for desmontado
+  // Tentar recuperar o perfil se ele não estiver disponível
   useEffect(() => {
-    return () => {
-      if (monitoringInterval) {
-        clearInterval(monitoringInterval);
-      }
-    };
-  }, [monitoringInterval]);
+    if (!profile && !authLoading && profileRetryCount < 3) {
+      const retryTimeout = setTimeout(async () => {
+        console.log(`🔄 Tentativa ${profileRetryCount + 1} de recuperar perfil...`);
+        await refreshProfile();
+        setProfileRetryCount(prev => prev + 1);
+      }, 3000); // Tentar a cada 3 segundos
+      
+      return () => clearTimeout(retryTimeout);
+    }
+  }, [profile, authLoading, profileRetryCount, refreshProfile]);
 
-  // FLUXO CORRETO: Conectar número - QR CODE PRIMEIRO!
+  // FLUXO CORRIGIDO: Conectar número - Gerar QR Code diretamente
   const handleConnectNumber = async () => {
     if (!isZAPIConfigured) {
       setError('Credenciais da Z-API não configuradas. Verifique o arquivo .env');
@@ -66,120 +73,133 @@ const WhatsAppNumber: React.FC = () => {
       setError(null);
       setSuccess(null);
       setQrCodeImage('');
-      setMonitoringActive(false);
-      
-      // Limpar qualquer intervalo de monitoramento anterior
-      if (monitoringInterval) {
-        clearInterval(monitoringInterval);
-        setMonitoringInterval(null);
-      }
+      setQrCodeLoading(true);
 
-      console.log('🔄 FLUXO CORRETO: Gerando QR Code primeiro...');
+      console.log('🔄 Iniciando conexão WhatsApp - Gerando QR Code diretamente...');
 
-      // PASSO 1: Obter QR Code DIRETAMENTE (sem verificar status antes)
-      const result = await connectWhatsApp();
+      // PASSO 1: Gerar QR Code diretamente
+      const qrCodeResult = await zapiService.getQRCode();
+      console.log('📊 Resultado da chamada getQRCode:', qrCodeResult);
       
-      if (result.success) {
-        // Check if already connected
-        if (result.alreadyConnected) {
-          setConnectionStatus('CONNECTED');
-          setSuccess('WhatsApp já está conectado!');
-          setTimeout(() => setSuccess(null), 5000);
+      if (!qrCodeResult.success) {
+        // Verificar se o erro indica que já está conectado
+        if (qrCodeResult.error && qrCodeResult.error.includes('already connected')) {
+          console.log('✅ Já está conectado (detectado pelo erro)');
           
-          // Verificar status para obter informações atualizadas
+          // Atualizar status no Supabase
+          await saveOrUpdateWhatsAppNumberInSupabase({
+            profileId: profile.id,
+            organizationId: profile.organization_id,
+            connectionStatus: 'CONNECTED',
+            instanceId: zapiService.getConfig().instanceId,
+            displayName: whatsappNumber?.display_name || 'WhatsApp Business',
+            isAiActive: whatsappNumber?.is_ai_active !== undefined ? whatsappNumber.is_ai_active : true,
+            aiPrompt: whatsappNumber?.ai_prompt || 'Você é um assistente virtual prestativo.'
+          });
+          
+          // Verificar status para obter informações detalhadas
           await handleCheckInstanceStatus();
+          
+          setSuccess('WhatsApp já está conectado!');
+          setTimeout(() => setSuccess(null), 3000);
+          setQrCodeLoading(false);
           return;
         }
-
-        // If QR Code was generated
-        if (result.qrCode) {
-          setQrCodeImage(result.qrCode);
-          setShowQRModal(true);
-          setSuccess('QR Code gerado com sucesso! Escaneie com seu WhatsApp.');
-          
-          // PASSO 2: Verificar status periodicamente APÓS mostrar QR Code
-          console.log('⏰ Starting aggressive connection monitoring...');
-          setMonitoringActive(true);
-          
-          const interval = setInterval(async () => {
-            try {
-              console.log('🔍 Checking connection status...');
-              
-              // Usar método mais direto para verificar conexão
-              const isConnectedNow = await zapiService.isConnected();
-              
-              if (isConnectedNow) {
-                console.log('✅ WhatsApp connected successfully detected!');
-                setShowQRModal(false);
-                setConnectionStatus('CONNECTED');
-                setSuccess('WhatsApp conectado com sucesso!');
-                setMonitoringActive(false);
-                clearInterval(interval);
-                setMonitoringInterval(null);
-                
-                // Obter informações detalhadas da conexão
-                await handleCheckInstanceStatus();
-                
-                // Limpar mensagem de sucesso após 5 segundos
-                setTimeout(() => setSuccess(null), 5000);
-              }
-            } catch (err) {
-              console.log('ℹ️ Still waiting for connection...', err);
-              // Não mostrar erro aqui, é normal enquanto aguarda conexão
-            }
-          }, 2000); // Verificar a cada 2 segundos (mais agressivo)
-          
-          setMonitoringInterval(interval);
-
-          // Limpar interval após 3 minutos
-          setTimeout(() => {
-            clearInterval(interval);
-            setMonitoringInterval(null);
-            setMonitoringActive(false);
-            console.log('⏰ Connection monitoring timeout');
-          }, 180000); // 3 minutos
-        } else {
-          throw new Error('Resposta inesperada: nem QR Code nem conexão existente');
-        }
+        
+        throw new Error(qrCodeResult.error || 'Falha ao gerar QR Code');
+      }
+      
+      // Verificar se já está conectado
+      if (qrCodeResult.data?.alreadyConnected) {
+        console.log('✅ WhatsApp já está conectado!');
+        
+        // Atualizar status no Supabase
+        await saveOrUpdateWhatsAppNumberInSupabase({
+          profileId: profile.id,
+          organizationId: profile.organization_id,
+          connectionStatus: 'CONNECTED',
+          instanceId: zapiService.getConfig().instanceId,
+          displayName: whatsappNumber?.display_name || 'WhatsApp Business',
+          isAiActive: whatsappNumber?.is_ai_active !== undefined ? whatsappNumber.is_ai_active : true,
+          aiPrompt: whatsappNumber?.ai_prompt || 'Você é um assistente virtual prestativo.'
+        });
+        
+        // Verificar status para obter informações detalhadas
+        await handleCheckInstanceStatus();
+        
+        setSuccess('WhatsApp já está conectado!');
+        setTimeout(() => setSuccess(null), 3000);
+        setQrCodeLoading(false);
+        return;
+      }
+      
+      // Se temos QR Code, mostrar
+      if (qrCodeResult.data?.qrCode) {
+        console.log('✅ QR Code gerado com sucesso!');
+        
+        // Salvar estado no Supabase
+        await saveOrUpdateWhatsAppNumberInSupabase({
+          profileId: profile.id,
+          organizationId: profile.organization_id,
+          connectionStatus: 'QR_GENERATED',
+          instanceId: zapiService.getConfig().instanceId,
+          displayName: whatsappNumber?.display_name || 'WhatsApp Business',
+          isAiActive: whatsappNumber?.is_ai_active !== undefined ? whatsappNumber.is_ai_active : true,
+          aiPrompt: whatsappNumber?.ai_prompt || 'Você é um assistente virtual prestativo.'
+        });
+        
+        // Mostrar QR Code
+        setQrCodeImage(qrCodeResult.data.qrCode);
+        setShowQRModal(true);
+        setSuccess('QR Code gerado com sucesso! Escaneie com seu WhatsApp.');
+        setQrCodeLoading(false);
       } else {
-        throw new Error(result.error || 'Falha ao conectar WhatsApp');
+        throw new Error('QR Code não encontrado na resposta');
       }
     } catch (err) {
       console.error('❌ Error in connection flow:', err);
       setError(err instanceof Error ? err.message : 'Erro ao conectar WhatsApp');
+      setQrCodeLoading(false);
     } finally {
       setConnectionLoading(false);
     }
   };
 
-  // Verificar status da instância APENAS quando solicitado manualmente
+  // Verificar status da instância manualmente
   const handleCheckInstanceStatus = async () => {
     try {
       setError(null);
+      setCheckingConnection(true);
       
       if (!profile?.id || !profile?.organization_id) {
         throw new Error('Perfil do usuário não encontrado');
       }
       
-      console.log('🔍 Manual check of instance status via /status...');
+      console.log('🔍 Verificação manual do status da instância via endpoint /status...');
       const result = await checkInstanceStatus();
       
       if (result) {
         setInstanceInfo(result.data);
         setConnectionStatus(result.connected ? 'CONNECTED' : 'DISCONNECTED');
-        console.log('📊 Instance Status updated:', result.data);
+        console.log('📊 Status da instância atualizado:', result.data);
         
         if (result.connected) {
           setSuccess('WhatsApp conectado e sincronizado com sucesso!');
+          setShowQRModal(false); // Fechar modal se estiver conectado
           setTimeout(() => setSuccess(null), 3000);
         } else {
           setSuccess('Status verificado - WhatsApp não conectado');
           setTimeout(() => setSuccess(null), 3000);
         }
       }
+      
+      return result;
     } catch (err) {
       console.error('Error checking instance status:', err);
       setError(err instanceof Error ? err.message : 'Erro ao verificar status da instância');
+      return null;
+    } finally {
+      setCheckingConnection(false);
     }
   };
 
@@ -246,13 +266,15 @@ const WhatsAppNumber: React.FC = () => {
   // Função para atualizar QR Code manualmente
   const handleRefreshQRCode = async () => {
     try {
-      console.log('🔄 Manual QR Code refresh requested...');
+      setQrCodeLoading(true);
+      console.log('🔄 Atualização manual do QR Code solicitada...');
       
       const result = await zapiService.getQRCode();
       
       if (result.success && result.data?.qrCode) {
         setQrCodeImage(result.data.qrCode);
-        console.log('✅ QR Code image updated successfully');
+        console.log('✅ Imagem do QR Code atualizada com sucesso');
+        setQrCodeLoading(false);
       } else if (result.success && result.data?.alreadyConnected) {
         setShowQRModal(false);
         setSuccess('WhatsApp já está conectado!');
@@ -260,61 +282,82 @@ const WhatsAppNumber: React.FC = () => {
         
         // Verificar status para obter informações atualizadas
         await handleCheckInstanceStatus();
+        setQrCodeLoading(false);
       } else {
         throw new Error(result.error || 'QR Code não encontrado na resposta');
       }
     } catch (err) {
       console.error('❌ Error fetching QR Code:', err);
       setError(err instanceof Error ? err.message : 'Erro ao buscar QR Code');
+      setQrCodeLoading(false);
+    }
+  };
+
+  // Função para tentar recuperar o perfil manualmente
+  const handleRetryProfile = async () => {
+    try {
+      setError(null);
+      console.log('🔄 Tentando recuperar perfil manualmente...');
+      
+      const result = await refreshProfile();
+      
+      if (result.success) {
+        setSuccess('Perfil carregado com sucesso!');
+        setTimeout(() => setSuccess(null), 3000);
+      } else {
+        throw new Error(result.error || 'Falha ao recuperar perfil');
+      }
+    } catch (err) {
+      console.error('❌ Error recovering profile:', err);
+      setError(err instanceof Error ? err.message : 'Erro ao recuperar perfil');
     }
   };
 
   const getStatusColor = (status: string) => {
     switch (status.toUpperCase()) {
-      case 'CONNECTED':
-        return 'text-green-600 dark:text-green-400';
-      case 'QR_GENERATED':
-        return 'text-blue-600 dark:text-blue-400';
-      case 'CONNECTING':
-        return 'text-yellow-600 dark:text-yellow-400';
-      default:
-        return 'text-red-600 dark:text-red-400';
+      case 'CONNECTED': return 'text-green-600 dark:text-green-400';
+      case 'CONNECTING': return 'text-yellow-600 dark:text-yellow-400';
+      case 'QR_GENERATED': return 'text-blue-600 dark:text-blue-400';
+      default: return 'text-red-600 dark:text-red-400';
     }
   };
 
   const getStatusBg = (status: string) => {
     switch (status.toUpperCase()) {
-      case 'CONNECTED':
-        return 'bg-green-100 dark:bg-green-900/30';
-      case 'QR_GENERATED':
-        return 'bg-blue-100 dark:bg-blue-900/30';
-      case 'CONNECTING':
-        return 'bg-yellow-100 dark:bg-yellow-900/30';
-      default:
-        return 'bg-red-100 dark:bg-red-900/30';
+      case 'CONNECTED': return 'bg-green-100 dark:bg-green-900/30';
+      case 'CONNECTING': return 'bg-yellow-100 dark:bg-yellow-900/30';
+      case 'QR_GENERATED': return 'bg-blue-100 dark:bg-blue-900/30';
+      default: return 'bg-red-100 dark:bg-red-900/30';
     }
   };
 
   const getStatusText = (status: string) => {
     switch (status.toUpperCase()) {
-      case 'CONNECTED':
-        return 'Conectado';
-      case 'QR_GENERATED':
-        return 'QR Code Gerado';
-      case 'CONNECTING':
-        return 'Conectando';
-      default:
-        return 'Desconectado';
+      case 'CONNECTED': return 'Conectado';
+      case 'CONNECTING': return 'Conectando';
+      case 'QR_GENERATED': return 'QR Code Gerado';
+      default: return 'Desconectado';
     }
   };
 
   const isConnectedStatus = connectionStatus.toUpperCase() === 'CONNECTED';
 
-  if (supabaseLoading || authLoading) {
+  // Mostrar mensagem de carregamento se auth estiver carregando
+  if (authLoading) {
     return (
       <div className="flex items-center justify-center py-12">
         <div className="w-8 h-8 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
-        <span className="ml-2 text-gray-600 dark:text-gray-400">Carregando...</span>
+        <span className="ml-2 text-gray-600 dark:text-gray-400">Carregando autenticação...</span>
+      </div>
+    );
+  }
+
+  // Mostrar mensagem de carregamento do Supabase
+  if (supabaseLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <div className="w-8 h-8 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+        <span className="ml-2 text-gray-600 dark:text-gray-400">Carregando dados do Supabase...</span>
       </div>
     );
   }
@@ -379,16 +422,24 @@ const WhatsAppNumber: React.FC = () => {
       )}
 
       {/* Profile Loading Status */}
-      {!profile && !supabaseLoading && (
+      {!profile && !authLoading && (
         <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
-          <div className="flex items-center space-x-2">
-            <AlertCircle className="w-5 h-5 text-yellow-600 dark:text-yellow-400" />
-            <div>
-              <p className="text-yellow-700 dark:text-yellow-300 font-medium">Carregando Perfil do Usuário</p>
-              <p className="text-yellow-600 dark:text-yellow-400 text-sm mt-1">
-                Aguardando dados do perfil para conectar o WhatsApp...
-              </p>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <AlertCircle className="w-5 h-5 text-yellow-600 dark:text-yellow-400" />
+              <div>
+                <p className="text-yellow-700 dark:text-yellow-300 font-medium">Carregando Perfil do Usuário</p>
+                <p className="text-yellow-600 dark:text-yellow-400 text-sm mt-1">
+                  Aguardando dados do perfil para conectar o WhatsApp...
+                </p>
+              </div>
             </div>
+            <button
+              onClick={handleRetryProfile}
+              className="px-3 py-1 bg-yellow-600 text-white text-sm rounded-lg hover:bg-yellow-700 transition-colors"
+            >
+              Tentar Novamente
+            </button>
           </div>
         </div>
       )}
@@ -421,18 +472,6 @@ const WhatsAppNumber: React.FC = () => {
             >
               ×
             </button>
-          </div>
-        </div>
-      )}
-
-      {/* Monitoring Status */}
-      {monitoringActive && (
-        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-          <div className="flex items-center space-x-2">
-            <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-            <p className="text-blue-700 dark:text-blue-300">
-              Monitorando conexão... Escaneie o QR Code com seu WhatsApp para conectar.
-            </p>
           </div>
         </div>
       )}
@@ -573,8 +612,8 @@ const WhatsAppNumber: React.FC = () => {
           <div className="flex items-center space-x-3">
             <div className="w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center text-sm font-bold">3</div>
             <div>
-              <p className="font-medium text-blue-900 dark:text-blue-100">Conexão Automática</p>
-              <p className="text-sm text-blue-700 dark:text-blue-300">Sistema detecta automaticamente</p>
+              <p className="font-medium text-blue-900 dark:text-blue-100">Clique em "Verificar Conexão"</p>
+              <p className="text-sm text-blue-700 dark:text-blue-300">Após escanear, verifique se a conexão foi bem-sucedida</p>
             </div>
           </div>
           <div className="flex items-center space-x-3">
@@ -600,7 +639,15 @@ const WhatsAppNumber: React.FC = () => {
               </p>
               
               <div className="bg-white p-4 rounded-lg border-2 border-gray-200 dark:border-gray-600 mb-6">
-                {qrCodeImage ? (
+                {qrCodeLoading ? (
+                  <div className="w-64 h-64 mx-auto flex items-center justify-center bg-gray-100 dark:bg-gray-700 rounded-lg">
+                    <div className="text-center">
+                      <Loader2 className="w-8 h-8 animate-spin text-indigo-600 mx-auto mb-2" />
+                      <p className="text-gray-600 dark:text-gray-400 text-sm">Gerando QR Code...</p>
+                      <p className="text-gray-500 dark:text-gray-500 text-xs mt-1">Via Z-API</p>
+                    </div>
+                  </div>
+                ) : qrCodeImage ? (
                   <img 
                     src={qrCodeImage.startsWith('data:') ? qrCodeImage : `data:image/png;base64,${qrCodeImage}`}
                     alt="QR Code" 
@@ -609,24 +656,21 @@ const WhatsAppNumber: React.FC = () => {
                 ) : (
                   <div className="w-64 h-64 mx-auto flex items-center justify-center bg-gray-100 dark:bg-gray-700 rounded-lg">
                     <div className="text-center">
-                      <Loader2 className="w-8 h-8 animate-spin text-indigo-600 mx-auto mb-2" />
-                      <p className="text-gray-600 dark:text-gray-400 text-sm">Gerando QR Code...</p>
-                      <p className="text-gray-500 dark:text-gray-500 text-xs mt-1">Via Z-API</p>
+                      <AlertCircle className="w-8 h-8 text-red-500 mx-auto mb-2" />
+                      <p className="text-gray-600 dark:text-gray-400 text-sm">QR Code não disponível</p>
+                      <p className="text-gray-500 dark:text-gray-500 text-xs mt-1">Tente atualizar</p>
                     </div>
                   </div>
                 )}
               </div>
               
-              {monitoringActive && (
-                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 mb-6">
-                  <div className="flex items-center justify-center space-x-2">
-                    <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-                    <p className="text-blue-700 dark:text-blue-300 text-sm">
-                      Aguardando conexão... O popup fechará automaticamente quando conectado.
-                    </p>
-                  </div>
+              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 mb-6">
+                <div className="flex items-center justify-center space-x-2">
+                  <p className="text-blue-700 dark:text-blue-300 text-sm">
+                    Após escanear o QR Code com seu WhatsApp, clique no botão abaixo para verificar a conexão.
+                  </p>
                 </div>
-              )}
+              </div>
               
               <div className="text-sm text-gray-500 dark:text-gray-400 mb-6 space-y-1">
                 <p>1. Abra o WhatsApp no seu celular</p>
@@ -635,27 +679,40 @@ const WhatsAppNumber: React.FC = () => {
                 <p>4. Escaneie este código QR</p>
               </div>
               
-              <div className="flex space-x-3">
+              <div className="flex flex-col space-y-3">
                 <button
-                  onClick={() => {
-                    setShowQRModal(false);
-                    setMonitoringActive(false);
-                    if (monitoringInterval) {
-                      clearInterval(monitoringInterval);
-                      setMonitoringInterval(null);
-                    }
-                  }}
-                  className="flex-1 px-6 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors"
+                  onClick={handleCheckInstanceStatus}
+                  disabled={checkingConnection}
+                  className="w-full px-6 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors flex items-center justify-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Fechar
+                  {checkingConnection ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <CheckCircle className="w-4 h-4" />
+                  )}
+                  <span>Já conectou? Verificar conexão</span>
                 </button>
-                <button
-                  onClick={handleRefreshQRCode}
-                  className="flex-1 px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors flex items-center justify-center space-x-2"
-                >
-                  <RefreshCw className="w-4 h-4" />
-                  <span>Atualizar QR</span>
-                </button>
+                
+                <div className="flex space-x-3">
+                  <button
+                    onClick={() => setShowQRModal(false)}
+                    className="flex-1 px-6 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors"
+                  >
+                    Fechar
+                  </button>
+                  <button
+                    onClick={handleRefreshQRCode}
+                    disabled={qrCodeLoading}
+                    className="flex-1 px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors flex items-center justify-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {qrCodeLoading ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="w-4 h-4" />
+                    )}
+                    <span>Atualizar QR</span>
+                  </button>
+                </div>
               </div>
             </div>
           </div>
