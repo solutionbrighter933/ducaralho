@@ -357,7 +357,7 @@ const WhatsAppNumber: React.FC = () => {
     return (
       <div className="flex items-center justify-center py-12">
         <div className="w-8 h-8 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
-        <span className="ml-2 text-gray-600 dark:text-gray-400">Carregando...</span>
+        <span className="ml-2 text-gray-600 dark:text-gray-400">Carregando dados do Supabase...</span>
       </div>
     );
   }
