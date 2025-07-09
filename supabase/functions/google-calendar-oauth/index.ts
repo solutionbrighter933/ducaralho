@@ -37,10 +37,14 @@ Deno.serve(async (req) => {
       });
     }
 
-    const { code, redirect_uri, user_id, organization_id } = await req.json();
+    // Get request origin for dynamic redirect URI handling
+    const origin = req.headers.get('Origin') || req.headers.get('Referer')?.split('/').slice(0, 3).join('/');
+    const { code, user_id, organization_id } = await req.json();
+    // Use the origin to construct the redirect URI dynamically
+    const redirect_uri = `${origin}/auth/callback/google-calendar`;
 
-    if (!code || !redirect_uri || !user_id || !organization_id) {
-      return new Response(JSON.stringify({ error: 'Missing required parameters: code, redirect_uri, user_id, organization_id' }), {
+    if (!code || !user_id || !organization_id) {
+      return new Response(JSON.stringify({ error: 'Missing required parameters: code, user_id, organization_id' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });

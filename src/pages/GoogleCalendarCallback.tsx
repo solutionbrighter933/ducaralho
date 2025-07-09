@@ -40,8 +40,12 @@ const GoogleCalendarCallback: React.FC = () => {
   const exchangeCodeForTokens = async (code: string) => {
     try {
       // Simular a troca de código por tokens (em produção, isso seria feito pela Edge Function)
+      // Use dynamic redirect URI based on current environment
+      const redirectUri = `${window.location.origin}/auth/callback/google-calendar`;
+      
       // Esta é uma simulação para fins de demonstração
       console.log('Simulando troca de código por tokens...');
+      console.log('Usando redirect URI:', redirectUri);
       
       // Simular um atraso de rede
       await new Promise(resolve => setTimeout(resolve, 2000));

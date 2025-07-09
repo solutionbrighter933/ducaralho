@@ -148,7 +148,8 @@ const GoogleCalendar: React.FC = () => {
 
   const handleConnect = () => {
     const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CALENDAR_CLIENT_ID;
-    const GOOGLE_REDIRECT_URI = import.meta.env.VITE_GOOGLE_CALENDAR_REDIRECT_URI;
+    // Use dynamic redirect URI based on current environment
+    const GOOGLE_REDIRECT_URI = `${window.location.origin}/auth/callback/google-calendar`;
     
     if (!GOOGLE_CLIENT_ID || !GOOGLE_REDIRECT_URI) {
       setError('Variáveis de ambiente do Google Calendar não configuradas. Verifique .env');
