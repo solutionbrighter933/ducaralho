@@ -40,8 +40,8 @@ const StripeCheckout: React.FC<StripeCheckoutProps> = ({ onSuccess, onCancel }) 
         body: JSON.stringify({
           price_id: priceId,
           mode,
-          success_url: `${window.location.origin}/success`,
-          cancel_url: `${window.location.origin}/pricing`,
+          success_url: `${https://www.atendos.com.br}/success`,
+          cancel_url: `${https://www.atendos.com.br}/pricing`,
           trial_days: trialDays ? Number(trialDays) : undefined
         }),
       });

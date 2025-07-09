@@ -492,7 +492,7 @@ const WhatsAppNumber: React.FC = () => {
               )}
               {instanceInfo && (
                 <div className="text-sm text-gray-600 dark:text-gray-400 mt-2 space-y-1">
-                  <p>{instanceInfo.name || instanceInfo.id}</p>
+                  <p>Instância: {instanceInfo.name || instanceInfo.id}</p>
                   {instanceInfo.phone && (
                     <p>Telefone: {instanceInfo.phone}</p>
                   )}

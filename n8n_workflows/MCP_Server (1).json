@@ -1,0 +1,240 @@
+{
+  "name": "MCP Server",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "97351d95-e7dd-4ccc-a129-fbd60aa7c55d"
+      },
+      "type": "@n8n/n8n-nodes-langchain.mcpTrigger",
+      "typeVersion": 1,
+      "position": [
+        520,
+        -100
+      ],
+      "id": "62883c2a-b307-4ba1-a57c-09417b25c790",
+      "name": "MCP Server Trigger",
+      "webhookId": "97351d95-e7dd-4ccc-a129-fbd60aa7c55d"
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "calendar": {
+          "__rl": true,
+          "value": "jamelaoxt11@gmail.com",
+          "mode": "list",
+          "cachedResultName": "jamelaoxt11@gmail.com"
+        },
+        "eventId": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Event_ID', `pegue o id referente ao agendamento que o cliente solicitou`, 'string') }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleCalendarTool",
+      "typeVersion": 1.3,
+      "position": [
+        300,
+        120
+      ],
+      "id": "930f857b-2ab0-4828-8908-28f166f8fd85",
+      "name": "Consultar evento",
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "2RmcJFrBbwWiH4Tr",
+          "name": "Google Calendar account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "calendar": {
+          "__rl": true,
+          "value": "jamelaoxt11@gmail.com",
+          "mode": "list",
+          "cachedResultName": "jamelaoxt11@gmail.com"
+        },
+        "returnAll": true,
+        "timeMin": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('After', ``, 'string') }}",
+        "timeMax": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Before', ``, 'string') }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleCalendarTool",
+      "typeVersion": 1.3,
+      "position": [
+        460,
+        120
+      ],
+      "id": "71053658-dc14-4af9-a926-4be98b1b9cfe",
+      "name": "consultar Disponibilidade",
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "2RmcJFrBbwWiH4Tr",
+          "name": "Google Calendar account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "calendar": {
+          "__rl": true,
+          "value": "jamelaoxt11@gmail.com",
+          "mode": "list",
+          "cachedResultName": "jamelaoxt11@gmail.com"
+        },
+        "start": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Start', `inicio do evento`, 'string') }}",
+        "end": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('End', `momento final do evento +30 minutos`, 'string') }}",
+        "additionalFields": {
+          "description": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Description', `gera descrição do evento com base na conversa`, 'string') }}",
+          "summary": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Summary', `gere o resumo da consulta com os dados do cliente`, 'string') }}"
+        }
+      },
+      "type": "n8n-nodes-base.googleCalendarTool",
+      "typeVersion": 1.3,
+      "position": [
+        600,
+        120
+      ],
+      "id": "5f04a06e-5699-4aa4-944a-66e46617b6d3",
+      "name": "Criar evento",
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "2RmcJFrBbwWiH4Tr",
+          "name": "Google Calendar account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "calendar": {
+          "__rl": true,
+          "value": "jamelaoxt11@gmail.com",
+          "mode": "list",
+          "cachedResultName": "jamelaoxt11@gmail.com"
+        },
+        "eventId": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Event_ID', `pegue o id do agendamento que o cliente solicitou o reagendamento`, 'string') }}",
+        "updateFields": {
+          "description": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Description', ``, 'string') }}",
+          "end": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('End', ``, 'string') }}",
+          "start": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Start', ``, 'string') }}",
+          "summary": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Summary', ``, 'string') }}"
+        }
+      },
+      "type": "n8n-nodes-base.googleCalendarTool",
+      "typeVersion": 1.3,
+      "position": [
+        740,
+        120
+      ],
+      "id": "299e33c1-45bd-4ba8-98b6-ae07cbfa39a3",
+      "name": "Reagendar evento",
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "2RmcJFrBbwWiH4Tr",
+          "name": "Google Calendar account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "delete",
+        "calendar": {
+          "__rl": true,
+          "value": "jamelaoxt11@gmail.com",
+          "mode": "list",
+          "cachedResultName": "jamelaoxt11@gmail.com"
+        },
+        "eventId": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Event_ID', `pegue o id do agendamento que o cliente solicitou o cancelamento`, 'string') }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleCalendarTool",
+      "typeVersion": 1.3,
+      "position": [
+        880,
+        120
+      ],
+      "id": "f28ddb16-c61d-4922-9f9f-10e86eb4100b",
+      "name": "Cancelar evento",
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "2RmcJFrBbwWiH4Tr",
+          "name": "Google Calendar account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Consultar evento": {
+      "ai_tool": [
+        [
+          {
+            "node": "MCP Server Trigger",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "consultar Disponibilidade": {
+      "ai_tool": [
+        [
+          {
+            "node": "MCP Server Trigger",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Criar evento": {
+      "ai_tool": [
+        [
+          {
+            "node": "MCP Server Trigger",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reagendar evento": {
+      "ai_tool": [
+        [
+          {
+            "node": "MCP Server Trigger",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cancelar evento": {
+      "ai_tool": [
+        [
+          {
+            "node": "MCP Server Trigger",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "0e349f1a-496b-4998-b486-9f7beb5790ec",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "0ec08e0d795709ad73afc12ecf525817df320edb36e291f8b0ed1b7922b0a319"
+  },
+  "id": "4pAUJUcFHwboglAG",
+  "tags": [
+    {
+      "createdAt": "2025-06-25T02:16:55.348Z",
+      "updatedAt": "2025-06-25T02:16:55.348Z",
+      "id": "wHVhv3lfMx4KXETN",
+      "name": "NoCode StartUp"
+    }
+  ]
+}
