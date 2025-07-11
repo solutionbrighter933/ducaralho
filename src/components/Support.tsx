@@ -37,7 +37,7 @@ const Support: React.FC = () => {
     try {
       console.log('🚀 Enviando mensagem para API:', message);
       
-      const response = await fetch('https://joaosiqueira.app.n8n.cloud/webhook/chatgpt', {
+      const response = await fetch('https://caralho-n8n.cjrr1u.easypanel.host/webhook/chatgpt', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
