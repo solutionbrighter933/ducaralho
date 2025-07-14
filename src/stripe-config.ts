@@ -13,7 +13,7 @@ export const products: Product[] = [
   {
     priceId: 'price_1Ri0FK09PxhT9skqmRPwZNCa',
     name: 'Atendos IA Starter',
-    price: 'R$ 398,00/mês',
+    price: 'R$ 796,00/mês',
     description: 'Starter - Plano ideal para começar com automação de atendimento',
     features: [
       'Atendimento automatizado com IA',
@@ -27,9 +27,9 @@ export const products: Product[] = [
     trialDays: 7
   },
   {
-    priceId: 'price_1RiGAe09PxhT9skqHniqlBBc',
+    priceId: 'price_1Rkur809PxhT9skqT19kNwd9',
     name: 'Atendos IA Plus',
-    price: 'R$ 596,00/mês',
+    price: 'R$ 1.192,00/mês',
     description: 'Plus - A Máquina de Conversão no Bolso',
     features: [
       '2.000 mensagens mensais com IA ativa 24h no automático',
@@ -44,9 +44,9 @@ export const products: Product[] = [
     popular: true
   },
   {
-    priceId: 'price_1RiGGY09PxhT9skqaPZTme7v',
+    priceId: 'price_1Rkurd09PxhT9skqA4v4IUHN',
     name: 'Atendos IA Pro',
-    price: 'R$ 789,00/mês',
+    price: 'R$ 1.578,00',
     description: 'Dominação Digital com Estilo Brutal',
     features: [
       '3.000 mensagens mensais com IA customizada',

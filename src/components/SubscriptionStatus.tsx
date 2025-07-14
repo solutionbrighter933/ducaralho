@@ -149,8 +149,8 @@ const SubscriptionStatus: React.FC = () => {
   const getPlanName = (priceId: string) => {
     const planMap: Record<string, string> = {
       'price_1Ri0FK09PxhT9skqmRPwZNCa': 'Atendos IA Starter',
-      'price_1RiGAe09PxhT9skqHniqlBBc': 'Atendos IA Plus',
-      'price_1RiGGY09PxhT9skqaPZTme7v': 'Atendos IA Pro'
+      'price_1Rkur809PxhT9skqT19kNwd9': 'Atendos IA Plus',
+      'price_1Rkurd09PxhT9skqA4v4IUHN': 'Atendos IA Pro'
     };
     return planMap[priceId] || 'Plano Desconhecido';
   };

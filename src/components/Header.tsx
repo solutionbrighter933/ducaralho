@@ -561,7 +561,7 @@ const Header: React.FC<HeaderProps> = ({ setActiveSection }) => {
                   </p>
                   {localStorage.getItem('developer_mode') === 'true' && (
                     <p className="text-xs text-orange-600 dark:text-orange-400 mt-1 font-medium">
-                      🔧 Modo Desenvolvedor Ativo
+                      
                     </p>
                   )}
                 </div>
