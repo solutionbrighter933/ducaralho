@@ -197,6 +197,7 @@ Deno.serve(async (req) => {
         },
       ],
       mode,
+      allow_promotion_codes: true, // Habilita o campo de cupom de desconto
       ...(mode === 'subscription' && trial_days ? { 
         subscription_data: { trial_period_days: Number(trial_days) } 
       } : {}),
