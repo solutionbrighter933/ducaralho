@@ -19,9 +19,48 @@ interface WhatsAppNumber {
 
 export const useWhatsAppConnection = () => {
   const [whatsappNumber, setWhatsappNumber] = useState<WhatsAppNumber | null>(null);
+  const [zapiConfigLoaded, setZapiConfigLoaded] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { user, profile, loading: authLoading, refreshProfile } = useAuthContext();
+
+  // Carregar configuração da Z-API do Supabase
+  useEffect(() => {
+    if (!profile?.organization_id) return;
+
+    const loadZAPIConfig = async () => {
+      try {
+        console.log('🔍 Carregando configuração Z-API para organização:', profile.organization_id);
+        
+        const { data: zapiConfig, error: zapiError } = await supabase
+          .from('zapi_configs')
+          .select('instance_id, token')
+          .eq('organization_id', profile.organization_id)
+          .maybeSingle();
+
+        if (zapiError && zapiError.code !== 'PGRST116') {
+          console.error('❌ Erro ao buscar configuração Z-API:', zapiError);
+          throw zapiError;
+        }
+
+        if (zapiConfig) {
+          console.log('✅ Configuração Z-API encontrada, definindo credenciais...');
+          zapiService.setCredentials(zapiConfig.instance_id, zapiConfig.token);
+          setZapiConfigLoaded(true);
+        } else {
+          console.log('⚠️ Nenhuma configuração Z-API encontrada para esta organização');
+          zapiService.clearCredentials();
+          setZapiConfigLoaded(false);
+        }
+      } catch (err) {
+        console.error('❌ Erro ao carregar configuração Z-API:', err);
+        zapiService.clearCredentials();
+        setZapiConfigLoaded(false);
+      }
+    };
+
+    loadZAPIConfig();
+  }, [profile?.organization_id]);
 
   useEffect(() => {
     if (!profile?.id) return;
@@ -567,6 +606,6 @@ export const useWhatsAppConnection = () => {
     notifyN8NWhatsAppConnection,
     refreshProfile, // Expose profile refresh function
     isConnected: whatsappNumber?.connection_status === 'CONNECTED',
-    isZAPIConfigured: zapiService.isConfigured(),
+    isZAPIConfigured: zapiConfigLoaded && zapiService.isConfigured(),
   };
 };

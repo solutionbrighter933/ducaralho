@@ -18,10 +18,12 @@ import {
   Sun,
   Moon,
   Monitor,
-  Loader2
+  Loader2,
+  Smartphone
 } from 'lucide-react';
 import { settingsService } from '../services/settingsService';
 import GoogleCalendarIntegration from './GoogleCalendarIntegration';
+import ZAPIIntegrationSettings from './ZAPIIntegrationSettings';
 
 interface SettingsProps {
   theme?: 'light' | 'dark' | 'auto';
@@ -181,6 +183,7 @@ const Settings: React.FC<SettingsProps> = ({ theme = 'auto', setTheme, activeTab
   const tabs = [
     { id: 'general', label: 'Geral', icon: SettingsIcon },
     { id: 'ai-models', label: 'Modelos de IA', icon: Brain },
+    { id: 'zapi-integration', label: 'Integração Z-API', icon: Smartphone },
     { id: 'notifications', label: 'Notificações', icon: Bell },
     { id: 'security', label: 'Segurança', icon: Shield },
     { id: 'appearance', label: 'Aparência', icon: Palette },
@@ -647,6 +650,8 @@ const Settings: React.FC<SettingsProps> = ({ theme = 'auto', setTheme, activeTab
         return renderGeneralSettings();
       case 'ai-models':
         return renderAIModelsSettings();
+      case 'zapi-integration':
+        return <ZAPIIntegrationSettings />;
       case 'notifications':
         return renderNotificationSettings();
       case 'security':

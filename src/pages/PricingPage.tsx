@@ -101,30 +101,7 @@ const PricingPage: React.FC = () => {
             </div>
           </div>
 
-      <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-xl p-6 mb-12">
-            <div className="flex flex-col md:flex-row items-center justify-between">
-              <div className="flex items-center mb-4 md:mb-0">
-                <div className="w-16 h-16 bg-orange-100 dark:bg-orange-800 rounded-full flex items-center justify-center mr-6">
-                  <Code className="w-8 h-8 text-orange-600 dark:text-orange-400" />
-                </div>
-                <div>
-                  <h2 className="text-xl font-semibold text-orange-900 dark:text-orange-300 mb-2">
-                    Modo Desenvolvedor
-                  </h2>
-                  <p className="text-orange-700 dark:text-orange-400">
-                    Acesse o dashboard completo sem assinatura para testar todas as funcionalidades.
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={handleDeveloperMode}
-                className="flex items-center space-x-2 px-6 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors font-medium"
-              >
-                <Code className="w-5 h-5" />
-                <span>Continuar como Desenvolvedor</span>
-              </button>
-            </div>
-          </div>
+   
 
 
           <StripeCheckout

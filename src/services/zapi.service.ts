@@ -63,33 +63,41 @@ export interface DeviceInfo {
 }
 
 export class ZAPIService {
-  private config: ZAPIConfig;
+  private _instanceId: string | null = null;
+  private _token: string | null = null;
+  private _clientToken: string = 'F4a554efd9a4b4e51903dda0db517ffcaS'; // Client-Token fixo conforme documentação
   private baseURL: string;
 
   constructor() {
-    this.config = {
-      instanceId: import.meta.env.VITE_ZAPI_INSTANCE_ID || '3E34EADF8CD1007B145E2A88B4975A95',
-      token: import.meta.env.VITE_ZAPI_TOKEN || '7C19DEAA164FD4EF8312E717',
-      clientToken: 'F4a554efd9a4b4e51903dda0db517ffcaS', // Client-Token fixo conforme documentação
-      webhookUrl: import.meta.env.VITE_N8N_WEBHOOK_URL,
-    };
+    this.baseURL = '';
+    console.log('🔧 Z-API Service initialized - waiting for credentials to be set');
+  }
 
-    // URL conforme documentação oficial: /instances/{instance}/token/{token}/
-    this.baseURL = `https://api.z-api.io/instances/${this.config.instanceId}/token/${this.config.token}`;
+  // Método para definir credenciais dinamicamente
+  setCredentials(instanceId: string, token: string): void {
+    this._instanceId = instanceId;
+    this._token = token;
+    this.baseURL = `https://api.z-api.io/instances/${instanceId}/token/${token}`;
     
-    console.log('🔧 Z-API Service initialized:', {
-      instanceId: this.config.instanceId ? 'Configured ✅' : 'Missing ❌',
-      token: this.config.token ? 'Configured ✅' : 'Missing ❌',
-      clientToken: this.config.clientToken ? 'Configured ✅' : 'Missing ❌',
-      webhookUrl: this.config.webhookUrl ? 'Configured ✅' : 'Missing ❌',
+    console.log('🔧 Z-API credentials set:', {
+      instanceId: instanceId ? 'Configured ✅' : 'Missing ❌',
+      token: token ? 'Configured ✅' : 'Missing ❌',
       baseURL: this.baseURL
     });
   }
 
+  // Método para limpar credenciais
+  clearCredentials(): void {
+    this._instanceId = null;
+    this._token = null;
+    this.baseURL = '';
+    console.log('🔧 Z-API credentials cleared');
+  }
+
   // Verificar se as credenciais estão configuradas
   private checkCredentials(): boolean {
-    if (!this.config.instanceId || !this.config.token || !this.config.clientToken) {
-      throw new Error('Credenciais da Z-API não configuradas completamente');
+    if (!this._instanceId || !this._token || !this._clientToken) {
+      throw new Error('Credenciais da Z-API não configuradas. Configure-as em Configurações > Integração Z-API');
     }
     return true;
   }
@@ -107,7 +115,7 @@ export class ZAPIService {
         ...options,
         headers: {
           'Content-Type': 'application/json',
-          'Client-Token': this.config.clientToken, // Header conforme documentação
+          'Client-Token': this._clientToken, // Header conforme documentação
           ...options.headers,
         },
       });
@@ -946,13 +954,17 @@ export class ZAPIService {
   }
 
   // Obter configuração atual
-  getConfig(): ZAPIConfig {
-    return { ...this.config };
+  getConfig(): { instanceId: string | null; token: string | null; clientToken: string } {
+    return {
+      instanceId: this._instanceId,
+      token: this._token,
+      clientToken: this._clientToken
+    };
   }
 
   // Verificar se o serviço está configurado corretamente
   isConfigured(): boolean {
-    return !!(this.config.instanceId && this.config.token && this.config.clientToken);
+    return !!(this._instanceId && this._token && this._clientToken);
   }
 }
 

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuthContext } from '../components/AuthProvider';
+import { zapiService } from '../services/zapi.service';
 
 interface MensagemWhatsApp {
   id: string;
@@ -46,13 +47,40 @@ export const useWhatsAppConversations = () => {
 
   const { user, profile } = useAuthContext();
 
-  // Configuração da Z-API
-  const ZAPI_CONFIG = {
-    instanceId: '3E34EADF8CD1007B145E2A88B4975A95',
-    token: '7C19DEAA164FD4EF8312E717',
-    clientToken: 'F4a554efd9a4b4e51903dda0db517ffcaS',
-    baseUrl: 'https://api.z-api.io/instances/3E34EADF8CD1007B145E2A88B4975A95/token/7C19DEAA164FD4EF8312E717'
-  };
+  // Carregar configuração da Z-API do Supabase
+  useEffect(() => {
+    if (!profile?.organization_id) return;
+
+    const loadZAPIConfig = async () => {
+      try {
+        console.log('🔍 Carregando configuração Z-API para conversas...');
+        
+        const { data: zapiConfig, error: zapiError } = await supabase
+          .from('zapi_configs')
+          .select('instance_id, token')
+          .eq('organization_id', profile.organization_id)
+          .maybeSingle();
+
+        if (zapiError && zapiError.code !== 'PGRST116') {
+          console.error('❌ Erro ao buscar configuração Z-API:', zapiError);
+          return;
+        }
+
+        if (zapiConfig) {
+          console.log('✅ Configuração Z-API encontrada para conversas');
+          zapiService.setCredentials(zapiConfig.instance_id, zapiConfig.token);
+        } else {
+          console.log('⚠️ Nenhuma configuração Z-API encontrada para conversas');
+          zapiService.clearCredentials();
+        }
+      } catch (err) {
+        console.error('❌ Erro ao carregar configuração Z-API para conversas:', err);
+        zapiService.clearCredentials();
+      }
+    };
+
+    loadZAPIConfig();
+  }, [profile?.organization_id]);
 
   // Debug: verificar dados das tabelas DIRETAMENTE
   const debugTabelas = async () => {
@@ -235,39 +263,16 @@ export const useWhatsAppConversations = () => {
   // Enviar mensagem via Z-API
   const enviarViaZAPI = async (numero: string, mensagem: string): Promise<any> => {
     try {
-      console.log(`📤 Enviando mensagem via Z-API para ${numero}...`);
+      console.log(`📤 Enviando mensagem via Z-API para ${numero} usando zapiService...`);
 
-      const url = `${ZAPI_CONFIG.baseUrl}/send-text`;
-      
-      const payload = {
-        phone: numero,
-        message: mensagem
-      };
+      const result = await zapiService.sendTextMessage(numero, mensagem);
 
-      console.log('📡 URL Z-API:', url);
-      console.log('📦 Payload:', payload);
-
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Client-Token': ZAPI_CONFIG.clientToken
-        },
-        body: JSON.stringify(payload)
-      });
-
-      console.log(`📡 Status da resposta Z-API: ${response.status}`);
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('❌ Erro na resposta Z-API:', errorText);
-        throw new Error(`Erro Z-API (${response.status}): ${errorText}`);
+      if (!result.success) {
+        throw new Error(result.error || 'Falha ao enviar mensagem via Z-API');
       }
 
-      const resultado = await response.json();
-      console.log('✅ Resposta Z-API:', resultado);
-
-      return resultado;
+      console.log('✅ Mensagem enviada com sucesso via Z-API:', result.data);
+      return result.data; // Retorna os dados da resposta da Z-API
 
     } catch (err) {
       console.error('❌ Erro ao enviar via Z-API:', err);
@@ -279,6 +284,11 @@ export const useWhatsAppConversations = () => {
   const enviarMensagem = async (mensagemTexto: string) => {
     if (!conversaSelecionada || !user?.id) {
       throw new Error('Conversa não selecionada ou usuário não autenticado');
+    }
+
+    // Verificar se o zapiService está configurado
+    if (!zapiService.isConfigured()) {
+      throw new Error('Credenciais da Z-API não configuradas. Por favor, configure-as em Configurações > Integração Z-API.');
     }
 
     console.log(`📤 Iniciando envio de mensagem para conversa ${conversaSelecionada.conversa_id}...`);

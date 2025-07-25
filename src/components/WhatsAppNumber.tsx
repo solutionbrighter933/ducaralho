@@ -34,7 +34,7 @@ const WhatsAppNumber: React.FC = () => {
   const [profileRetryCount, setProfileRetryCount] = useState(0);
 
   // Verificar se a Z-API está configurada
-  const isZAPIConfigured = zapiService.isConfigured();
+  const { isZAPIConfigured } = useWhatsAppConnection();
 
   // Sincronizar status local com dados do Supabase
   useEffect(() => {
@@ -369,7 +369,7 @@ const WhatsAppNumber: React.FC = () => {
         <div className="flex space-x-3">
           <button 
             onClick={handleCheckInstanceStatus}
-            disabled={connectionLoading || !profile?.id}
+            disabled={connectionLoading || !isZAPIConfigured || !profile?.id || authLoading}
             className="flex items-center space-x-2 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-gray-700 dark:text-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <RefreshCw className={`w-5 h-5 ${connectionLoading ? 'animate-spin' : ''}`} />
@@ -379,7 +379,7 @@ const WhatsAppNumber: React.FC = () => {
           {isConnectedStatus ? (
             <button 
               onClick={handleDisconnectWhatsApp}
-              disabled={connectionLoading || !profile?.id}
+              disabled={connectionLoading || !profile?.id || !isZAPIConfigured}
               className="flex items-center space-x-2 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {connectionLoading ? (
@@ -392,7 +392,7 @@ const WhatsAppNumber: React.FC = () => {
           ) : (
             <button 
               onClick={handleConnectNumber}
-              disabled={connectionLoading || !isZAPIConfigured || !profile?.id}
+              disabled={connectionLoading || !isZAPIConfigured || !profile?.id || authLoading}
               className="flex items-center space-x-2 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {connectionLoading ? (
@@ -407,16 +407,24 @@ const WhatsAppNumber: React.FC = () => {
       </div>
 
       {/* Configuration Status */}
-      {!isZAPIConfigured && (
+      {!isZAPIConfigured && !authLoading && profile?.id && (
         <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
             <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400" />
             <div>
-              <p className="text-red-700 dark:text-red-300 font-medium">Configuração da Z-API Necessária</p>
+              <p className="text-red-700 dark:text-red-300 font-medium">Credenciais da Z-API Necessárias</p>
               <p className="text-red-600 dark:text-red-400 text-sm mt-1">
-                Configure as variáveis VITE_ZAPI_INSTANCE_ID e VITE_ZAPI_TOKEN no arquivo .env
+                Configure suas credenciais da Z-API em Configurações antes de conectar um número
               </p>
             </div>
+            </div>
+            <button
+              onClick={() => window.location.href = '/settings?tab=zapi-integration'}
+              className="px-3 py-1 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700 transition-colors"
+            >
+              Configurar Z-API
+            </button>
           </div>
         </div>
       )}
@@ -487,7 +495,7 @@ const WhatsAppNumber: React.FC = () => {
               </p>
               {whatsappNumber?.phone_number && (
                 <p className="text-sm text-gray-600 dark:text-gray-400 mt-2">
-                  {whatsappNumber.phone_number}
+                  ⚠️ {!isZAPIConfigured ? 'Configure a Z-API em Configurações' : !profile?.id ? 'Aguarde o carregamento do perfil' : 'Conecte o WhatsApp'} primeiro para enviar mensagens de teste
                 </p>
               )}
               {instanceInfo && (
@@ -527,13 +535,13 @@ const WhatsAppNumber: React.FC = () => {
             <div>
               <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Configuração</p>
               <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">
-                {isZAPIConfigured && profile?.id ? 'OK' : 'Pendente'}
+                {isZAPIConfigured && profile?.id && !authLoading ? 'OK' : 'Pendente'}
               </p>
               <p className="text-sm text-gray-600 dark:text-gray-400 mt-2">
                 Veja mais em Conversas
               </p>
             </div>
-            <div className={`w-12 h-12 ${isZAPIConfigured && profile?.id ? 'bg-blue-500' : 'bg-orange-500'} rounded-lg flex items-center justify-center`}>
+            <div className={`w-12 h-12 ${isZAPIConfigured && profile?.id && !authLoading ? 'bg-blue-500' : 'bg-orange-500'} rounded-lg flex items-center justify-center`}>
               <Settings className="w-6 h-6 text-white" />
             </div>
           </div>
@@ -554,7 +562,7 @@ const WhatsAppNumber: React.FC = () => {
                 placeholder="5511999999999"
                 value={testPhone}
                 onChange={(e) => setTestPhone(e.target.value)}
-                disabled={!isConnectedStatus || !isZAPIConfigured || !profile?.id}
+                disabled={!isConnectedStatus || !isZAPIConfigured || !profile?.id || authLoading}
                 className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 disabled:opacity-50"
               />
             </div>
@@ -566,14 +574,14 @@ const WhatsAppNumber: React.FC = () => {
                 type="text"
                 value={testMessage}
                 onChange={(e) => setTestMessage(e.target.value)}
-                disabled={!isConnectedStatus || !isZAPIConfigured || !profile?.id}
+                disabled={!isConnectedStatus || !isZAPIConfigured || !profile?.id || authLoading}
                 className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 disabled:opacity-50"
               />
             </div>
           </div>
           <button
             onClick={handleTestMessage}
-            disabled={testLoading || !testPhone.trim() || !isConnectedStatus || !isZAPIConfigured || !profile?.id}
+            disabled={testLoading || !testPhone.trim() || !isConnectedStatus || !isZAPIConfigured || !profile?.id || authLoading}
             className="flex items-center space-x-2 px-6 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {testLoading ? (
@@ -583,9 +591,9 @@ const WhatsAppNumber: React.FC = () => {
             )}
             <span>Enviar Teste</span>
           </button>
-          {(!isConnectedStatus || !isZAPIConfigured || !profile?.id) && (
+          {(!isConnectedStatus || !isZAPIConfigured || !profile?.id || authLoading) && (
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              ⚠️ {!isZAPIConfigured ? 'Configure a Z-API' : !profile?.id ? 'Aguarde o carregamento do perfil' : 'Conecte o WhatsApp'} primeiro para enviar mensagens de teste
+              ⚠️ {!isZAPIConfigured ? 'Configure a Z-API em Configurações' : !profile?.id || authLoading ? 'Aguarde o carregamento do perfil' : 'Conecte o WhatsApp'} primeiro para enviar mensagens de teste
             </p>
           )}
         </div>
@@ -598,29 +606,29 @@ const WhatsAppNumber: React.FC = () => {
           <div className="flex items-center space-x-3">
             <div className="w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center text-sm font-bold">1</div>
             <div>
+              <p className="font-medium text-blue-900 dark:text-blue-100">Configure suas credenciais Z-API</p>
+              <p className="text-sm text-blue-700 dark:text-blue-300">Vá em Configurações &gt; Integração Z-API</p>
+            </div>
+          </div>
+          <div className="flex items-center space-x-3">
+            <div className="w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center text-sm font-bold">2</div>
+            <div>
               <p className="font-medium text-blue-900 dark:text-blue-100">Clique em "Conectar Número"</p>
               <p className="text-sm text-blue-700 dark:text-blue-300">Gera o QR Code automaticamente</p>
             </div>
           </div>
           <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center text-sm font-bold">2</div>
+            <div className="w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center text-sm font-bold">3</div>
             <div>
               <p className="font-medium text-blue-900 dark:text-blue-100">Escaneie o QR Code</p>
               <p className="text-sm text-blue-700 dark:text-blue-300">Use seu WhatsApp para escanear o código</p>
             </div>
           </div>
           <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center text-sm font-bold">3</div>
+            <div className="w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center text-sm font-bold">4</div>
             <div>
               <p className="font-medium text-blue-900 dark:text-blue-100">Clique em "Verificar Conexão"</p>
               <p className="text-sm text-blue-700 dark:text-blue-300">Após escanear, verifique se a conexão foi bem-sucedida</p>
-            </div>
-          </div>
-          <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center text-sm font-bold">4</div>
-            <div>
-              <p className="font-medium text-blue-900 dark:text-blue-100">Funcionalidades Liberadas</p>
-              <p className="text-sm text-blue-700 dark:text-blue-300">Envio de mensagens, conversas, IA, etc.</p>
             </div>
           </div>
         </div>
