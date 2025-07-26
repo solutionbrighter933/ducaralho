@@ -481,6 +481,44 @@ export const useWhatsAppConversations = () => {
     };
   }, [user?.id, conversaSelecionada?.conversa_id]);
 
+
+  // Função para apagar mensagem
+  const apagarMensagem = async (mensagemId: string) => {
+    if (!user?.id) {
+      throw new Error('Usuário não autenticado');
+    }
+
+    console.log(`🗑️ Apagando mensagem WhatsApp: ${mensagemId}`);
+
+    try {
+      // Apagar mensagem do banco
+      const { error: deleteError } = await supabase
+        .from('mensagens_whatsapp')
+        .delete()
+        .eq('id', mensagemId)
+        .eq('user_id', user.id); // Garantir que só pode apagar suas próprias mensagens
+
+      if (deleteError) {
+        console.error('❌ Erro ao apagar mensagem:', deleteError);
+        throw deleteError;
+      }
+
+      console.log('✅ Mensagem apagada com sucesso');
+
+      // Atualizar estado local removendo a mensagem
+      setMensagens(prev => prev.filter(msg => msg.id !== mensagemId));
+
+      // Recarregar conversas para atualizar contadores
+      await carregarConversas();
+
+      return true;
+
+    } catch (err) {
+      console.error('❌ Erro ao apagar mensagem:', err);
+      throw err;
+    }
+  };
+
   return {
     // Estados
     conversas,
@@ -498,6 +536,7 @@ export const useWhatsAppConversations = () => {
     selecionarConversa,
     testarSistema,
     debugTabelas,
+    apagarMensagem,
 
     // Setters
     setConversaSelecionada,

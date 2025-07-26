@@ -20,11 +20,57 @@ import SubscriptionStatus from './components/SubscriptionStatus';
 type ActiveSection = 'dashboard' | 'conversations' | 'ai-training' | 'whatsapp' | 'instagram' | 'calendar' | 'settings' | 'profile' | 'support' | 'debug' | 'subscription';
 type Theme = 'light' | 'dark' | 'auto';
 
+interface AppNotification {
+  id: string;
+  title: string;
+  message: string;
+  type: 'success' | 'info' | 'warning' | 'error';
+  timestamp: Date;
+  read: boolean;
+}
 function App() {
   const [activeSection, setActiveSection] = useState<ActiveSection>('whatsapp');
   const [theme, setTheme] = useState<Theme>('auto');
   const [settingsTab, setSettingsTab] = useState('general');
+  const [appNotifications, setAppNotifications] = useState<AppNotification[]>([]);
 
+  // Função para adicionar nova notificação
+  const addAppNotification = (notification: Omit<AppNotification, 'id' | 'timestamp' | 'read'>) => {
+    const newNotification: AppNotification = {
+      ...notification,
+      id: `notification-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      timestamp: new Date(),
+      read: false
+    };
+    
+    setAppNotifications(prev => [newNotification, ...prev]);
+    
+    // Auto-remove notification after 30 seconds
+    setTimeout(() => {
+      setAppNotifications(prev => prev.filter(n => n.id !== newNotification.id));
+    }, 30000);
+  };
+
+  // Função para marcar notificação como lida
+  const markNotificationAsRead = (notificationId: string) => {
+    setAppNotifications(prev => 
+      prev.map(notification => 
+        notification.id === notificationId 
+          ? { ...notification, read: true }
+          : notification
+      )
+    );
+  };
+
+  // Função para remover notificação
+  const removeNotification = (notificationId: string) => {
+    setAppNotifications(prev => prev.filter(n => n.id !== notificationId));
+  };
+
+  // Função para limpar todas as notificações
+  const clearAllNotifications = () => {
+    setAppNotifications([]);
+  };
   // Aplicar tema ao carregar
   useEffect(() => {
     const savedTheme = localStorage.getItem('theme') as Theme;
@@ -81,7 +127,7 @@ function App() {
       case 'instagram':
         return <InstagramDirect setActiveSection={setActiveSection} />;
       case 'calendar':
-        return <GoogleCalendar />;
+        return <GoogleCalendar addAppNotification={addAppNotification} />;
       case 'settings':
         return <Settings theme={theme} setTheme={setTheme} activeTab={settingsTab} setActiveTab={setSettingsTab} />;
       case 'profile':
@@ -106,7 +152,13 @@ function App() {
         <div className="flex h-screen bg-gray-50 dark:bg-gray-900 transition-colors">
           <Sidebar activeSection={activeSection} setActiveSection={setActiveSection} />
           <div className="flex-1 flex flex-col overflow-hidden">
-            <Header setActiveSection={setActiveSection} />
+            <Header 
+              setActiveSection={setActiveSection}
+              appNotifications={appNotifications}
+              markNotificationAsRead={markNotificationAsRead}
+              removeNotification={removeNotification}
+              clearAllNotifications={clearAllNotifications}
+            />
             <main className="flex-1 overflow-y-auto p-6">
               {renderContent()}
             </main>

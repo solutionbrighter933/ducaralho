@@ -251,6 +251,44 @@ export const useInstagramConversations = () => {
     };
   }, [user?.id, conversaSelecionada?.sender_id]);
 
+
+  // Função para apagar mensagem do Instagram
+  const apagarMensagem = async (mensagemId: string) => {
+    if (!user?.id) {
+      throw new Error('Usuário não autenticado');
+    }
+
+    console.log(`🗑️ Apagando mensagem Instagram: ${mensagemId}`);
+
+    try {
+      // Apagar mensagem do banco
+      const { error: deleteError } = await supabase
+        .from('conversas_instagram')
+        .delete()
+        .eq('id', mensagemId)
+        .eq('user_id', user.id); // Garantir que só pode apagar suas próprias mensagens
+
+      if (deleteError) {
+        console.error('❌ Erro ao apagar mensagem Instagram:', deleteError);
+        throw deleteError;
+      }
+
+      console.log('✅ Mensagem Instagram apagada com sucesso');
+
+      // Atualizar estado local removendo a mensagem
+      setMensagens(prev => prev.filter(msg => msg.id !== mensagemId));
+
+      // Recarregar conversas para atualizar contadores
+      await carregarConversas();
+
+      return true;
+
+    } catch (err) {
+      console.error('❌ Erro ao apagar mensagem Instagram:', err);
+      throw err;
+    }
+  };
+
   return {
     // Estados
     conversas,
@@ -265,6 +303,7 @@ export const useInstagramConversations = () => {
     carregarMensagens,
     marcarComoLida,
     selecionarConversa,
+    apagarMensagem,
 
     // Setters
     setConversaSelecionada,

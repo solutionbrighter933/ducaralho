@@ -101,7 +101,7 @@ const PricingPage: React.FC = () => {
             </div>
           </div>
 
-   
+     
 
 
           <StripeCheckout

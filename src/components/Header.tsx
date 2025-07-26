@@ -1,11 +1,23 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Bell, Search, ChevronDown, LogOut, User, MessageSquare, Users, X, Instagram, CreditCard } from 'lucide-react';
+import { Bell, Search, ChevronDown, LogOut, User, MessageSquare, Users, X, Instagram, CreditCard, Calendar, CheckCircle, AlertCircle, Info, Trash2 } from 'lucide-react';
 import { useAuthContext } from './AuthProvider';
 import { supabase } from '../lib/supabase';
 import { useNavigate } from 'react-router-dom';
 
+interface AppNotification {
+  id: string;
+  title: string;
+  message: string;
+  type: 'success' | 'info' | 'warning' | 'error';
+  timestamp: Date;
+  read: boolean;
+}
 interface HeaderProps {
   setActiveSection?: (section: string) => void;
+  appNotifications?: AppNotification[];
+  markNotificationAsRead?: (notificationId: string) => void;
+  removeNotification?: (notificationId: string) => void;
+  clearAllNotifications?: () => void;
 }
 
 interface SearchResult {
@@ -21,7 +33,13 @@ interface SearchResult {
   data_hora?: string;
 }
 
-const Header: React.FC<HeaderProps> = ({ setActiveSection }) => {
+const Header: React.FC<HeaderProps> = ({ 
+  setActiveSection, 
+  appNotifications = [], 
+  markNotificationAsRead, 
+  removeNotification, 
+  clearAllNotifications 
+}) => {
   const [showUserMenu, setShowUserMenu] = useState(false);
   const navigate = useNavigate();
   const [showNotifications, setShowNotifications] = useState(false);
@@ -35,6 +53,52 @@ const Header: React.FC<HeaderProps> = ({ setActiveSection }) => {
   const userMenuRef = useRef<HTMLDivElement>(null);
   const notificationsRef = useRef<HTMLDivElement>(null);
 
+  // Contar notificações não lidas
+  const unreadNotificationsCount = appNotifications.filter(n => !n.read).length;
+
+  // Função para obter ícone da notificação baseado no tipo
+  const getNotificationIcon = (type: string) => {
+    switch (type) {
+      case 'success':
+        return <CheckCircle className="w-4 h-4 text-green-500" />;
+      case 'error':
+        return <AlertCircle className="w-4 h-4 text-red-500" />;
+      case 'warning':
+        return <AlertCircle className="w-4 h-4 text-yellow-500" />;
+      default:
+        return <Info className="w-4 h-4 text-blue-500" />;
+    }
+  };
+
+  // Função para obter cor de fundo da notificação
+  const getNotificationBg = (type: string) => {
+    switch (type) {
+      case 'success':
+        return 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800';
+      case 'error':
+        return 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800';
+      case 'warning':
+        return 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800';
+      default:
+        return 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800';
+    }
+  };
+
+  // Função para formatar tempo relativo
+  const formatTimeAgo = (date: Date) => {
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMinutes = Math.floor(diffMs / (1000 * 60));
+    
+    if (diffMinutes < 1) return 'agora';
+    if (diffMinutes < 60) return `${diffMinutes} min atrás`;
+    
+    const diffHours = Math.floor(diffMinutes / 60);
+    if (diffHours < 24) return `${diffHours}h atrás`;
+    
+    const diffDays = Math.floor(diffHours / 24);
+    return `${diffDays}d atrás`;
+  };
   // Close dropdowns when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -347,6 +411,18 @@ const Header: React.FC<HeaderProps> = ({ setActiveSection }) => {
     setSearchResults([]);
   };
 
+  // Função para lidar com clique na notificação
+  const handleNotificationClick = (notification: AppNotification) => {
+    if (markNotificationAsRead) {
+      markNotificationAsRead(notification.id);
+    }
+    
+    // Se a notificação for sobre Google Calendar, navegar para a seção
+    if (notification.message.includes('Google Calendar')) {
+      setActiveSection?.('calendar');
+      setShowNotifications(false);
+    }
+  };
   // Get user display information with real-time updates
   const getUserDisplayName = () => {
     return profile?.full_name || user?.email?.split('@')[0] || 'Usuário';
@@ -474,33 +550,108 @@ const Header: React.FC<HeaderProps> = ({ setActiveSection }) => {
               className="relative p-2 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
             >
               <Bell className="w-5 h-5" />
-              <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full"></span>
+              {unreadNotificationsCount > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[1.25rem] h-5 bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center px-1">
+                  {unreadNotificationsCount > 99 ? '99+' : unreadNotificationsCount}
+                </span>
+              )}
             </button>
 
             {/* Notifications Dropdown */}
             {showNotifications && (
-              <div className="absolute right-0 mt-2 w-80 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50">
+              <div className="absolute right-0 mt-2 w-96 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50 max-h-96 overflow-hidden">
                 <div className="p-4 border-b border-gray-200 dark:border-gray-700">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Notificações</h3>
-                    <button
-                      onClick={() => setShowNotifications(false)}
-                      className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
-                    >
-                      <X className="w-5 h-5" />
-                    </button>
+                    <div className="flex items-center space-x-2">
+                      <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Notificações</h3>
+                      {unreadNotificationsCount > 0 && (
+                        <span className="bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300 text-xs font-medium px-2 py-1 rounded-full">
+                          {unreadNotificationsCount} nova{unreadNotificationsCount !== 1 ? 's' : ''}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      {appNotifications.length > 0 && clearAllNotifications && (
+                        <button
+                          onClick={clearAllNotifications}
+                          className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 text-sm"
+                          title="Limpar todas"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                      <button
+                        onClick={() => setShowNotifications(false)}
+                        className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
+                      >
+                        <X className="w-5 h-5" />
+                      </button>
+                    </div>
                   </div>
                 </div>
                 
-                <div className="p-6 text-center">
-                  <Bell className="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
-                  <p className="text-gray-500 dark:text-gray-400 text-sm">
-                    Nenhuma notificação no momento!
-                  </p>
-                  <p className="text-gray-400 dark:text-gray-500 text-xs mt-1">
-                    Você será notificado sobre novas mensagens e atividades importantes.
-                  </p>
-                </div>
+                {appNotifications.length > 0 ? (
+                  <div className="max-h-80 overflow-y-auto">
+                    {appNotifications.map((notification) => (
+                      <div
+                        key={notification.id}
+                        onClick={() => handleNotificationClick(notification)}
+                        className={`p-4 border-b border-gray-100 dark:border-gray-700 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors ${
+                          !notification.read ? 'bg-blue-50 dark:bg-blue-900/10' : ''
+                        }`}
+                      >
+                        <div className="flex items-start space-x-3">
+                          <div className="flex-shrink-0 mt-1">
+                            {getNotificationIcon(notification.type)}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between">
+                              <p className={`text-sm font-medium ${
+                                !notification.read 
+                                  ? 'text-gray-900 dark:text-white' 
+                                  : 'text-gray-700 dark:text-gray-300'
+                              }`}>
+                                {notification.title}
+                              </p>
+                              {removeNotification && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    removeNotification(notification.id);
+                                  }}
+                                  className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 ml-2"
+                                >
+                                  <X className="w-4 h-4" />
+                                </button>
+                              )}
+                            </div>
+                            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                              {notification.message}
+                            </p>
+                            <div className="flex items-center justify-between mt-2">
+                              <p className="text-xs text-gray-500 dark:text-gray-500">
+                                {formatTimeAgo(notification.timestamp)}
+                              </p>
+                              {!notification.read && (
+                                <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="p-6 text-center">
+                    <Bell className="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
+                    <p className="text-gray-500 dark:text-gray-400 text-sm">
+                      Nenhuma notificação no momento!
+                    </p>
+                    <p className="text-gray-400 dark:text-gray-500 text-xs mt-1">
+                      Você será notificado sobre novas mensagens e atividades importantes.
+                    </p>
+                  </div>
+                )}
               </div>
             )}
           </div>

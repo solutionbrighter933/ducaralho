@@ -21,7 +21,8 @@ import {
   Info,
   MessageCircle,
   ZapOff,
-  Zap
+  Zap,
+  Trash2
 } from 'lucide-react';
 import { useWhatsAppConversations } from '../hooks/useWhatsAppConversations';
 import { useInstagramConversations } from '../hooks/useInstagramConversations';
@@ -38,6 +39,7 @@ const Conversations: React.FC = () => {
   const [showChatActions, setShowChatActions] = useState(false);
   const [showChatInfo, setShowChatInfo] = useState(false);
   const [toggleAILoading, setToggleAILoading] = useState(false);
+  const [deletingMessageId, setDeletingMessageId] = useState<string | null>(null);
 
   // Obter dados de autenticação e perfil
   const { user, profile, loading: authLoading } = useAuthContext();
@@ -54,7 +56,8 @@ const Conversations: React.FC = () => {
     enviarMensagem: enviarMensagemWhatsApp,
     marcarComoLida: marcarComoLidaWhatsApp,
     selecionarConversa: selecionarConversaWhatsApp,
-    setError: setErrorWhatsApp
+    setError: setErrorWhatsApp,
+    apagarMensagem: apagarMensagemWhatsApp
   } = useWhatsAppConversations();
 
   // Hook para conversas Instagram
@@ -68,7 +71,8 @@ const Conversations: React.FC = () => {
     carregarConversas: carregarConversasInstagram,
     marcarComoLida: marcarComoLidaInstagram,
     selecionarConversa: selecionarConversaInstagram,
-    setError: setErrorInstagram
+    setError: setErrorInstagram,
+    apagarMensagem: apagarMensagemInstagram
   } = useInstagramConversations();
 
   // Hook para gerenciar conversas com IA bloqueada
@@ -261,6 +265,35 @@ const Conversations: React.FC = () => {
     
     if (aiBlockError) {
       setAIBlockError(null);
+    }
+  };
+
+  // Apagar mensagem
+  const handleDeleteMessage = async (mensagemId: string) => {
+    if (!mensagemId || deletingMessageId) return;
+
+    // Confirmar exclusão
+    const confirmDelete = window.confirm(
+      'Tem certeza que deseja apagar esta mensagem? Esta ação não pode ser desfeita.'
+    );
+
+    if (!confirmDelete) return;
+
+    setDeletingMessageId(mensagemId);
+    
+    try {
+      if (conversationType === 'whatsapp') {
+        await apagarMensagemWhatsApp(mensagemId);
+      } else {
+        await apagarMensagemInstagram(mensagemId);
+      }
+      
+      console.log('✅ Mensagem apagada com sucesso');
+    } catch (err) {
+      console.error('❌ Erro ao apagar mensagem:', err);
+      alert(`Erro ao apagar mensagem: ${err instanceof Error ? err.message : 'Erro desconhecido'}`);
+    } finally {
+      setDeletingMessageId(null);
     }
   };
 
@@ -571,13 +604,30 @@ const Conversations: React.FC = () => {
                       mensagem.direcao.toLowerCase() === 'sent' ? 'justify-end' : 'justify-start'
                     }`}
                   >
-                    <div className={`max-w-xs lg:max-w-md px-4 py-3 rounded-2xl ${
+                    <div className={`group relative max-w-xs lg:max-w-md px-4 py-3 rounded-2xl ${
                       mensagem.direcao.toLowerCase() === 'sent'
                         ? conversationType === 'whatsapp'
                           ? 'bg-green-500 text-white rounded-br-sm' // WhatsApp sent = verde
                           : 'bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-br-sm' // Instagram sent = roxo/rosa
                         : 'bg-gray-700 dark:bg-gray-600 text-white rounded-bl-sm' // Received = escuro
                     }`}>
+                      
+                      {/* Botão de Apagar - Aparece no hover */}
+                      <button
+                        onClick={() => handleDeleteMessage(mensagem.id)}
+                        disabled={deletingMessageId === mensagem.id}
+                        className={`absolute -top-2 -right-2 w-6 h-6 bg-red-500 hover:bg-red-600 text-white rounded-full opacity-0 group-hover:opacity-100 transition-all duration-200 flex items-center justify-center text-xs shadow-lg hover:scale-110 disabled:opacity-50 disabled:cursor-not-allowed ${
+                          deletingMessageId === mensagem.id ? 'opacity-100' : ''
+                        }`}
+                        title="Apagar mensagem"
+                      >
+                        {deletingMessageId === mensagem.id ? (
+                          <div className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin"></div>
+                        ) : (
+                          <Trash2 className="w-3 h-3" />
+                        )}
+                      </button>
+
                       <p className="text-sm leading-relaxed">{mensagem.mensagem}</p>
                       <div className="flex items-center justify-between mt-2">
                         <p className={`text-xs ${

@@ -315,7 +315,10 @@ const Dashboard: React.FC = () => {
           ? msg.mensagem.substring(0, 50) + '...' 
           : msg.mensagem;
 
-        const isReceived = msg.direcao === 'received';
+        // Normalizar direção para comparação case-insensitive
+        const direcaoNormalizada = (msg.direcao || '').toLowerCase().trim();
+        const isReceived = direcaoNormalizada === 'received';
+        const isSent = direcaoNormalizada === 'sent';
         
         let message = '';
         let type = '';
@@ -324,18 +327,22 @@ const Dashboard: React.FC = () => {
           // Mensagem RECEBIDA - eu recebi do contato
           message = `Mensagem recebida de ${nomeContato}: "${mensagemTruncada}"`;
           type = 'message_received';
-        } else {
+        } else if (isSent) {
           // Mensagem ENVIADA - eu enviei para o contato
           message = `Mensagem enviada para ${nomeContato}: "${mensagemTruncada}"`;
           type = 'message_sent';
+        } else {
+          // Direção desconhecida - assumir como recebida por padrão
+          message = `Mensagem de ${nomeContato}: "${mensagemTruncada}" (direção: ${msg.direcao})`;
+          type = 'message_unknown';
         }
 
         return {
           type,
           message,
           time: formatTimeAgo(msg.data_hora),
-          status: isReceived ? 'received' : 'sent',
-          direction: isReceived ? 'received' : 'sent',
+          status: isReceived ? 'received' : isSent ? 'sent' : 'unknown',
+          direction: isReceived ? 'received' : isSent ? 'sent' : 'unknown',
           platform: 'whatsapp' as const
         };
       });
@@ -346,7 +353,10 @@ const Dashboard: React.FC = () => {
           ? msg.mensagem.substring(0, 50) + '...' 
           : msg.mensagem;
 
-        const isReceived = msg.direcao === 'received';
+        // Normalizar direção para comparação case-insensitive
+        const direcaoNormalizada = (msg.direcao || '').toLowerCase().trim();
+        const isReceived = direcaoNormalizada === 'received';
+        const isSent = direcaoNormalizada === 'sent';
         
         let message = '';
         let type = '';
@@ -355,18 +365,22 @@ const Dashboard: React.FC = () => {
           // Mensagem RECEBIDA - eu recebi do contato
           message = `Instagram: Mensagem recebida de ${senderName}: "${mensagemTruncada}"`;
           type = 'instagram_received';
-        } else {
+        } else if (isSent) {
           // Mensagem ENVIADA - eu enviei para o contato
           message = `Instagram: Mensagem enviada para ${senderName}: "${mensagemTruncada}"`;
           type = 'instagram_sent';
+        } else {
+          // Direção desconhecida - assumir como recebida por padrão
+          message = `Instagram: Mensagem de ${senderName}: "${mensagemTruncada}" (direção: ${msg.direcao})`;
+          type = 'instagram_unknown';
         }
 
         return {
           type,
           message,
           time: formatTimeAgo(msg.data_hora),
-          status: isReceived ? 'received' : 'sent',
-          direction: isReceived ? 'received' : 'sent',
+          status: isReceived ? 'received' : isSent ? 'sent' : 'unknown',
+          direction: isReceived ? 'received' : isSent ? 'sent' : 'unknown',
           platform: 'instagram' as const
         };
       });
@@ -374,9 +388,16 @@ const Dashboard: React.FC = () => {
       // Combinar e ordenar por tempo (mais recente primeiro)
       const combinedActivities = [...whatsappActivities, ...instagramActivities]
         .sort((a, b) => {
-          const timeA = new Date(a.time).getTime();
-          const timeB = new Date(b.time).getTime();
-          return timeB - timeA;
+          // Ordenar por data_hora original em vez de tempo formatado
+          const whatsappMsg = whatsappMessages?.find(m => formatTimeAgo(m.data_hora) === a.time);
+          const instagramMsg = instagramMessages?.find(m => formatTimeAgo(m.data_hora) === a.time);
+          const whatsappMsgB = whatsappMessages?.find(m => formatTimeAgo(m.data_hora) === b.time);
+          const instagramMsgB = instagramMessages?.find(m => formatTimeAgo(m.data_hora) === b.time);
+          
+          const dateA = whatsappMsg?.data_hora || instagramMsg?.data_hora || '';
+          const dateB = whatsappMsgB?.data_hora || instagramMsgB?.data_hora || '';
+          
+          return new Date(dateB).getTime() - new Date(dateA).getTime();
         })
         .slice(0, 8); // Limitar a 8 atividades
 
@@ -519,7 +540,7 @@ const Dashboard: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* GRÁFICO INTERATIVO MELHORADO */}
+        {/* GRÁFICO DE LINHA INTERATIVO - DESIGN ATUALIZADO */}
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center space-x-2">
@@ -565,66 +586,120 @@ const Dashboard: React.FC = () => {
             </button>
           </div>
           
-          <div className="relative h-64 flex items-end justify-between space-x-2 bg-gradient-to-t from-indigo-50 dark:from-indigo-900/20 to-transparent rounded-lg p-4">
-            {getCurrentMetricData().map((count, index) => {
-              const height = maxMessages > 0 ? (count / maxMessages) * 100 : 0;
-              const isHovered = hoveredBar === index;
-              const dayData = stats.weeklyDetails[index];
+          {/* Gráfico de Linha Estilo Moderno */}
+          <div className="relative h-64 bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/10 dark:to-indigo-900/10 rounded-xl p-6">
+            <svg className="w-full h-full" viewBox="0 0 400 200" preserveAspectRatio="none">
+              {/* Grid Lines */}
+              <defs>
+                <pattern id="grid" width="57.14" height="40" patternUnits="userSpaceOnUse">
+                  <path d="M 57.14 0 L 0 0 0 40" fill="none" stroke="rgba(156, 163, 175, 0.2)" strokeWidth="1"/>
+                </pattern>
+              </defs>
+              <rect width="100%" height="100%" fill="url(#grid)" />
               
-              return (
-                <div
-                  key={index}
-                  className="relative flex-1 flex flex-col items-center group cursor-pointer"
-                  onMouseEnter={() => setHoveredBar(index)}
-                  onMouseLeave={() => setHoveredBar(null)}
-                >
-                  {/* Tooltip Interativo */}
-                  {isHovered && dayData && (
-                    <div className="absolute -top-20 bg-gray-900 dark:bg-gray-700 text-white text-xs px-3 py-2 rounded-lg shadow-lg z-10 min-w-max">
-                      <div className="font-semibold">{dayData.day} - {dayData.date}</div>
-                      <div className="space-y-1 mt-1">
-                        <div className="flex items-center space-x-2">
-                          <div className="w-2 h-2 bg-blue-400 rounded-full"></div>
-                          <span>Enviadas: {dayData.sent}</span>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <div className="w-2 h-2 bg-green-400 rounded-full"></div>
-                          <span>Recebidas: {dayData.received}</span>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <div className="w-2 h-2 bg-purple-400 rounded-full"></div>
-                          <span>Total: {dayData.total}</span>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                  
-                  {/* Barra do Gráfico */}
-                  <div
-                    className={`w-full rounded-t-sm transition-all duration-300 ${
-                      isHovered 
-                        ? `bg-gradient-to-t ${getCurrentMetricColor()} shadow-lg transform scale-105` 
-                        : `bg-gradient-to-t ${getCurrentMetricColor()}`
-                    }`}
-                    style={{ height: `${Math.max(height, 5)}%` }}
-                  />
-                  
-                  {/* Label do Dia */}
-                  <span className={`text-xs mt-2 transition-colors ${
-                    isHovered 
-                      ? 'text-indigo-600 dark:text-indigo-400 font-semibold' 
-                      : 'text-gray-500 dark:text-gray-400'
-                  }`}>
-                    {stats.weeklyDetails[index]?.day || getDayName(index)}
-                  </span>
+              {/* Linha do Gráfico */}
+              <polyline
+                fill="none"
+                stroke="#3B82F6"
+                strokeWidth="3"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                points={getCurrentMetricData().map((value, index) => {
+                  const x = (index * 400) / (getCurrentMetricData().length - 1);
+                  const y = 180 - ((value / Math.max(...getCurrentMetricData(), 1)) * 160);
+                  return `${x},${y}`;
+                }).join(' ')}
+                className="drop-shadow-sm"
+              />
+              
+              {/* Pontos do Gráfico */}
+              {getCurrentMetricData().map((value, index) => {
+                const x = (index * 400) / (getCurrentMetricData().length - 1);
+                const y = 180 - ((value / Math.max(...getCurrentMetricData(), 1)) * 160);
+                const isHovered = hoveredBar === index;
+                
+                return (
+                  <g key={index}>
+                    {/* Ponto Principal */}
+                    <circle
+                      cx={x}
+                      cy={y}
+                      r={isHovered ? "8" : "6"}
+                      fill="#3B82F6"
+                      stroke="white"
+                      strokeWidth="3"
+                      className={`cursor-pointer transition-all duration-200 ${
+                        isHovered ? 'drop-shadow-lg' : 'drop-shadow-sm'
+                      }`}
+                      onMouseEnter={() => setHoveredBar(index)}
+                      onMouseLeave={() => setHoveredBar(null)}
+                    />
+                    
+                    {/* Área de Hover Invisível (maior para facilitar interação) */}
+                    <circle
+                      cx={x}
+                      cy={y}
+                      r="15"
+                      fill="transparent"
+                      className="cursor-pointer"
+                      onMouseEnter={() => setHoveredBar(index)}
+                      onMouseLeave={() => setHoveredBar(null)}
+                    />
+                  </g>
+                );
+              })}
+            </svg>
+            
+            {/* Tooltip Interativo */}
+            {hoveredBar !== null && stats.weeklyDetails[hoveredBar] && (
+              <div 
+                className="absolute bg-white dark:bg-gray-800 text-gray-900 dark:text-white text-xs px-4 py-3 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 z-10 min-w-max"
+                style={{
+                  left: `${(hoveredBar * 100) / (getCurrentMetricData().length - 1)}%`,
+                  top: '10px',
+                  transform: 'translateX(-50%)'
+                }}
+              >
+                <div className="font-semibold text-center mb-2">
+                  {stats.weeklyDetails[hoveredBar].day} - {stats.weeklyDetails[hoveredBar].date}
                 </div>
-              );
-            })}
+                <div className="space-y-1">
+                  <div className="flex items-center space-x-2">
+                    <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                    <span>Enviadas: {stats.weeklyDetails[hoveredBar].sent}</span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                    <span>Recebidas: {stats.weeklyDetails[hoveredBar].received}</span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <div className="w-2 h-2 bg-indigo-500 rounded-full"></div>
+                    <span>Total: {stats.weeklyDetails[hoveredBar].total}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {/* Labels dos Dias */}
+            <div className="absolute bottom-0 left-0 right-0 flex justify-between px-6 pb-2">
+              {stats.weeklyDetails.map((day, index) => (
+                <span 
+                  key={index}
+                  className={`text-xs transition-colors ${
+                    hoveredBar === index
+                      ? 'text-indigo-600 dark:text-indigo-400 font-semibold'
+                      : 'text-gray-500 dark:text-gray-400'
+                  }`}
+                >
+                  {day.day || getDayName(index)}
+                </span>
+              ))}
+            </div>
           </div>
           
           <div className="mt-4 flex items-center justify-center space-x-4 text-xs text-gray-500 dark:text-gray-400">
             <div className="flex items-center space-x-1">
-              <div className={`w-3 h-3 bg-gradient-to-r ${getCurrentMetricColor()} rounded-full`}></div>
+              <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
               <span>{getCurrentMetricLabel()}</span>
             </div>
           </div>
@@ -644,24 +719,32 @@ const Dashboard: React.FC = () => {
                   {/* Ícone baseado na plataforma e direção */}
                   <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
                     activity.platform === 'whatsapp'
-                      ? activity.direction === 'received' 
+                      ? activity.direction === 'received'
                         ? 'bg-green-100 dark:bg-green-900/30' 
-                        : 'bg-blue-100 dark:bg-blue-900/30'
+                        : activity.direction === 'sent'
+                          ? 'bg-blue-100 dark:bg-blue-900/30'
+                          : 'bg-gray-100 dark:bg-gray-900/30'
                       : activity.direction === 'received'
                         ? 'bg-purple-100 dark:bg-purple-900/30'
-                        : 'bg-pink-100 dark:bg-pink-900/30'
+                        : activity.direction === 'sent'
+                          ? 'bg-pink-100 dark:bg-pink-900/30'
+                          : 'bg-gray-100 dark:bg-gray-900/30'
                   }`}>
                     {activity.platform === 'whatsapp' ? (
                       activity.direction === 'received' ? (
                         <ArrowDownLeft className="w-4 h-4 text-green-600 dark:text-green-400" />
-                      ) : (
+                      ) : activity.direction === 'sent' ? (
                         <ArrowUpRight className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                      ) : (
+                        <MessageCircle className="w-4 h-4 text-gray-600 dark:text-gray-400" />
                       )
                     ) : (
                       activity.direction === 'received' ? (
                         <Instagram className="w-4 h-4 text-purple-600 dark:text-purple-400" />
-                      ) : (
+                      ) : activity.direction === 'sent' ? (
                         <Instagram className="w-4 h-4 text-pink-600 dark:text-pink-400" />
+                      ) : (
+                        <Instagram className="w-4 h-4 text-gray-600 dark:text-gray-400" />
                       )
                     )}
                   </div>
@@ -673,14 +756,20 @@ const Dashboard: React.FC = () => {
                       <span>•</span>
                       <span className={`font-medium ${
                         activity.platform === 'whatsapp'
-                          ? activity.direction === 'received' 
+                          ? activity.direction === 'received'
                             ? 'text-green-600 dark:text-green-400' 
-                            : 'text-blue-600 dark:text-blue-400'
+                            : activity.direction === 'sent'
+                              ? 'text-blue-600 dark:text-blue-400'
+                              : 'text-gray-600 dark:text-gray-400'
                           : activity.direction === 'received'
                             ? 'text-purple-600 dark:text-purple-400'
-                            : 'text-pink-600 dark:text-pink-400'
+                            : activity.direction === 'sent'
+                              ? 'text-pink-600 dark:text-pink-400'
+                              : 'text-gray-600 dark:text-gray-400'
                       }`}>
-                        {activity.direction === 'received' ? 'Recebida' : 'Enviada'}
+                        {activity.direction === 'received' ? 'Recebida' : 
+                         activity.direction === 'sent' ? 'Enviada' : 
+                         `Direção: ${activity.status}`}
                         {activity.platform === 'instagram' ? ' (Instagram)' : ''}
                       </span>
                     </p>
@@ -689,8 +778,16 @@ const Dashboard: React.FC = () => {
                   {/* Status indicator */}
                   <div className={`w-2 h-2 rounded-full flex-shrink-0 mt-2 ${
                     activity.platform === 'whatsapp'
-                      ? activity.direction === 'received' ? 'bg-green-500' : 'bg-blue-500'
-                      : activity.direction === 'received' ? 'bg-purple-500' : 'bg-pink-500'
+                      ? activity.direction === 'received' 
+                        ? 'bg-green-500' 
+                        : activity.direction === 'sent'
+                          ? 'bg-blue-500'
+                          : 'bg-gray-500'
+                      : activity.direction === 'received' 
+                        ? 'bg-purple-500' 
+                        : activity.direction === 'sent'
+                          ? 'bg-pink-500'
+                          : 'bg-gray-500'
                   }`}></div>
                 </div>
               ))
