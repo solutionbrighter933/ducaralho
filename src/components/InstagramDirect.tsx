@@ -51,7 +51,7 @@ const InstagramDirect: React.FC<InstagramDirectProps> = ({ setActiveSection }) =
     if (code && state) {
       // Verificar se o state é válido
       const savedState = localStorage.getItem('facebook_oauth_state');
-      if (savedState === state) {
+      if (savedState === state && state === 'teste_simples_123') {
         handleFacebookCallback(code);
         // Limpar parâmetros da URL
         window.history.replaceState({}, document.title, window.location.pathname);
@@ -151,14 +151,11 @@ const InstagramDirect: React.FC<InstagramDirectProps> = ({ setActiveSection }) =
   };
 
   const handleFacebookLogin = () => {
-    // Gerar um valor de segurança aleatório para o state
-    const securityState = btoa(Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15));
-    
-    // URL de autenticação do Facebook com os parâmetros fornecidos
-    const facebookAuthUrl = `https://www.facebook.com/v23.0/dialog/oauth?client_id=1964984554261839&redirect_uri=https://atendos.com.br/instagram/callback&state=${securityState}&scope=pages_show_list,instagram_basic,instagram_manage_messages,instagram_manage_comments`;
+    // URL de autenticação do Facebook conforme especificado
+    const facebookAuthUrl = `https://www.facebook.com/v19.0/dialog/oauth?client_id=1964984554261839&redirect_uri=https://atendos.com.br/instagram/callback&state=teste_simples_123&scope=public_profile`;
     
     // Salvar o state no localStorage para verificação posterior
-    localStorage.setItem('facebook_oauth_state', securityState);
+    localStorage.setItem('facebook_oauth_state', 'teste_simples_123');
     
     // Redirecionar para o Facebook
     window.location.href = facebookAuthUrl;
