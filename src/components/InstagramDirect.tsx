@@ -51,7 +51,7 @@ const InstagramDirect: React.FC<InstagramDirectProps> = ({ setActiveSection }) =
     if (code && state) {
       // Verificar se o state é válido
       const savedState = localStorage.getItem('facebook_oauth_state');
-      if (savedState === state && state === 'teste_simples_123') {
+      if (savedState === state && state === 'teste_negocio_123') {
         handleFacebookCallback(code);
         // Limpar parâmetros da URL
         window.history.replaceState({}, document.title, window.location.pathname);
@@ -151,11 +151,11 @@ const InstagramDirect: React.FC<InstagramDirectProps> = ({ setActiveSection }) =
   };
 
   const handleFacebookLogin = () => {
-    // URL de autenticação do Facebook conforme especificado
-    const facebookAuthUrl = `https://www.facebook.com/v19.0/dialog/oauth?client_id=1964984554261839&redirect_uri=https://atendos.com.br/instagram/callback&state=teste_simples_123&scope=public_profile`;
+    // URL de autenticação do Facebook atualizada
+    const facebookAuthUrl = `https://www.facebook.com/v19.0/dialog/oauth?client_id=1964984554261839&redirect_uri=https://atendos.com.br/instagram/callback&state=teste_negocio_123&scope=pages_show_list,instagram_basic`;
     
-    // Salvar o state no localStorage para verificação posterior
-    localStorage.setItem('facebook_oauth_state', 'teste_simples_123');
+    // Salvar o state atualizado no localStorage para verificação posterior
+    localStorage.setItem('facebook_oauth_state', 'teste_negocio_123');
     
     // Redirecionar para o Facebook
     window.location.href = facebookAuthUrl;
