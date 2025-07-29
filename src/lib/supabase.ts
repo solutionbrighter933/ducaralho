@@ -24,6 +24,18 @@ const initializeSupabaseClient = () => {
     return createMockClient();
   }
   
+  // Check if values are still placeholders
+  if (supabaseUrl === 'your_supabase_project_url' || 
+      supabaseAnonKey === 'your_supabase_anon_key' ||
+      supabaseUrl.includes('localhost') ||
+      supabaseUrl.includes('127.0.0.1')) {
+    console.error('❌ Supabase environment variables are still placeholders or pointing to localhost');
+    console.log('🔧 Please update your .env file with REAL Supabase credentials:');
+    console.log('Current URL:', supabaseUrl);
+    console.log('Current Key:', supabaseAnonKey ? 'Set but may be placeholder' : 'Missing');
+    return createMockClient();
+  }
+
   // Validate URL format
   try {
     new URL(supabaseUrl);
@@ -40,7 +52,8 @@ const initializeSupabaseClient = () => {
         autoRefreshToken: true,
         persistSession: true,
         detectSessionInUrl: false,
-        flowType: 'pkce'
+        flowType: 'pkce',
+        debug: false
       },
       global: {
         headers: {
@@ -72,11 +85,11 @@ const initializeSupabaseClient = () => {
 const testConnection = async (client: any) => {
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+    const timeoutId = setTimeout(() => controller.abort(), 10000); // Increased to 10 seconds
 
     const sessionPromise = client.auth.getSession();
     const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('Connection timeout')), 5000)
+      setTimeout(() => reject(new Error('Connection timeout')), 10000)
     );
 
     const { data, error } = await Promise.race([sessionPromise, timeoutPromise]) as any;

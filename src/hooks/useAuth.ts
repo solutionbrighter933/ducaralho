@@ -22,19 +22,32 @@ export const useAuth = () => {
   useEffect(() => {
     let mounted = true;
     let timeoutId: NodeJS.Timeout;
-    let profileRefreshInterval: NodeJS.Timeout;
+    let profileRefreshInterval: NodeJS.Timeout | null = null;
 
-    // Set a timeout to prevent infinite loading
+    // Increased timeout and better error handling
     timeoutId = setTimeout(() => {
       if (mounted && state.loading) {
-        console.warn('⚠️ Auth initialization timeout - forcing completion');
-        setState(prev => ({
-          ...prev,
-          loading: false,
-          error: null
-        }));
+        console.warn('⚠️ Auth initialization timeout - checking Supabase configuration');
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+        
+        if (!supabaseUrl || !supabaseKey || 
+            supabaseUrl === 'your_supabase_project_url' || 
+            supabaseKey === 'your_supabase_anon_key') {
+          setState(prev => ({
+            ...prev,
+            loading: false,
+            error: 'Configuração do Supabase ausente ou inválida. Atualize seu arquivo .env com credenciais reais do Supabase.'
+          }));
+        } else {
+          setState(prev => ({
+            ...prev,
+            loading: false,
+            error: null
+          }));
+        }
       }
-    }, 5000); // Reduced to 5 seconds
+    }, 10000); // Increased to 10 seconds
 
     // Get initial session
     const getInitialSession = async () => {
@@ -45,7 +58,9 @@ export const useAuth = () => {
         if (!import.meta.env.VITE_SUPABASE_URL || 
             !import.meta.env.VITE_SUPABASE_ANON_KEY ||
             import.meta.env.VITE_SUPABASE_URL === 'your_supabase_project_url' ||
-            import.meta.env.VITE_SUPABASE_ANON_KEY === 'your_supabase_anon_key') {
+            import.meta.env.VITE_SUPABASE_ANON_KEY === 'your_supabase_anon_key' ||
+            import.meta.env.VITE_SUPABASE_URL.includes('localhost') ||
+            import.meta.env.VITE_SUPABASE_URL.includes('127.0.0.1')) {
           throw new Error('Configuração do Supabase ausente ou inválida. Atualize seu arquivo .env com credenciais reais do Supabase.');
         }
 
@@ -59,7 +74,7 @@ export const useAuth = () => {
               profile: null,
               hasActiveSubscription: null,
               loading: false,
-              error: null,
+              error: `Erro de conexão com Supabase: ${error.message}`,
             });
           }
           return;
@@ -87,7 +102,7 @@ export const useAuth = () => {
                 .maybeSingle();
 
               const timeoutPromise = new Promise((_, reject) => 
-                setTimeout(() => reject(new Error('Profile fetch timeout')), 3000)
+                setTimeout(() => reject(new Error('Profile fetch timeout')), 8000)
               );
 
               const { data: profile, error: profileError } = await Promise.race([
@@ -147,7 +162,7 @@ export const useAuth = () => {
             profile: null,
             hasActiveSubscription: null,
             loading: false,
-            error: null,
+            error: error instanceof Error ? error.message : 'Erro de inicialização',
           });
         }
       } finally {
@@ -169,7 +184,10 @@ export const useAuth = () => {
         if (!mounted) return;
         
         try {
-          console.log('🔄 Refreshing profile data...');
+          // Only log every 5th refresh to reduce console spam
+          const shouldLog = Math.random() < 0.2;
+          if (shouldLog) console.log('🔄 Refreshing profile data...');
+          
           const { data: profile, error: profileError } = await supabase
             .from('profiles')
             .select(`
@@ -184,23 +202,23 @@ export const useAuth = () => {
             .maybeSingle();
 
           if (profileError) {
-            console.warn('⚠️ Profile refresh error:', profileError);
+            if (shouldLog) console.warn('⚠️ Profile refresh error:', profileError);
             // Don't update state on error to avoid losing existing profile
           } else if (profile) {
-            console.log('✅ Profile refreshed successfully');
+            if (shouldLog) console.log('✅ Profile refreshed successfully');
             setState(prev => ({
               ...prev,
               profile,
             }));
           } else if (!state.profile) {
-            console.warn('⚠️ Profile still not found during refresh');
+            if (shouldLog) console.warn('⚠️ Profile still not found during refresh');
             // Try to create profile if it doesn't exist
             tryCreateProfile(userId);
           }
         } catch (error) {
-          console.warn('⚠️ Error during profile refresh:', error);
+          if (shouldLog) console.warn('⚠️ Error during profile refresh:', error);
         }
-      }, 30000); // Refresh every 30 seconds
+      }, 60000); // Increased to 60 seconds to reduce load
     };
 
     // Function to attempt profile creation if it doesn't exist

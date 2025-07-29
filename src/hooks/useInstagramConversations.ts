@@ -289,6 +289,59 @@ export const useInstagramConversations = () => {
     }
   };
 
+  // Função para enviar mensagem via Edge Function
+  const enviarMensagem = async (recipientId: string, messageText: string) => {
+    if (!user?.id) {
+      throw new Error('Usuário não autenticado');
+    }
+
+    console.log(`📤 Enviando mensagem Instagram para ${recipientId}...`);
+
+    try {
+      // Obter token de autenticação do usuário
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError || !session?.access_token) {
+        throw new Error('Usuário não autenticado');
+      }
+
+      // Chamar Edge Function para enviar mensagem
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/instagram-send-message`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          recipient_id: recipientId,
+          message_text: messageText,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Falha ao enviar mensagem');
+      }
+
+      console.log('✅ Mensagem Instagram enviada com sucesso:', result);
+
+      // Recarregar conversas para mostrar a nova mensagem
+      await carregarConversas();
+      
+      // Se há uma conversa selecionada com este recipient, recarregar mensagens
+      if (conversaSelecionada && conversaSelecionada.sender_id === recipientId) {
+        await carregarMensagens(recipientId);
+      }
+
+      return result;
+
+    } catch (err) {
+      console.error('❌ Erro ao enviar mensagem Instagram:', err);
+      throw err;
+    }
+  };
+
   return {
     // Estados
     conversas,
@@ -304,6 +357,7 @@ export const useInstagramConversations = () => {
     marcarComoLida,
     selecionarConversa,
     apagarMensagem,
+    enviarMensagem,
 
     // Setters
     setConversaSelecionada,

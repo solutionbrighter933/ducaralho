@@ -24,6 +24,8 @@ import {
 import { settingsService } from '../services/settingsService';
 import GoogleCalendarIntegration from './GoogleCalendarIntegration';
 import ZAPIIntegrationSettings from './ZAPIIntegrationSettings';
+import PrivacyPolicy from './PrivacyPolicy';
+import TermsOfService from './TermsOfService';
 
 interface SettingsProps {
   theme?: 'light' | 'dark' | 'auto';
@@ -188,6 +190,8 @@ const Settings: React.FC<SettingsProps> = ({ theme = 'auto', setTheme, activeTab
     { id: 'security', label: 'Segurança', icon: Shield },
     { id: 'appearance', label: 'Aparência', icon: Palette },
     { id: 'google-calendar', label: 'Google Calendar', icon: Calendar },
+    { id: 'privacy-policy', label: 'Política de Privacidade', icon: Shield },
+    { id: 'terms-of-service', label: 'Termos de Serviço', icon: Globe },
   ];
 
   const aiModels = [
@@ -660,6 +664,10 @@ const Settings: React.FC<SettingsProps> = ({ theme = 'auto', setTheme, activeTab
         return renderAppearanceSettings();
       case 'google-calendar':
         return <GoogleCalendarIntegration />;
+      case 'privacy-policy':
+        return <PrivacyPolicy />;
+      case 'terms-of-service':
+        return <TermsOfService />;
       default:
         return renderGeneralSettings();
     }
