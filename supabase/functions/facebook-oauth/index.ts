@@ -7,10 +7,15 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-interface FacebookTokenResponse {
+interface InstagramTokenResponse {
   access_token: string;
-  token_type: string;
-  expires_in?: number;
+  user_id: string;
+}
+
+interface InstagramUserResponse {
+  id: string;
+  username: string;
+  account_type: string;
 }
 
 interface FacebookPageResponse {
@@ -29,17 +34,15 @@ interface InstagramAccountResponse {
   username: string;
   name: string;
   profile_picture_url: string;
+  followers_count: number;
+  media_count: number;
 }
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, {
       status: 204,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-      },
+      headers: corsHeaders,
     });
   }
 
@@ -47,11 +50,13 @@ Deno.serve(async (req) => {
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-    ); 
-    console.log('SUPABASE_URL:', Deno.env.get('SUPABASE_URL') ? 'Loaded' : 'Missing');
-    console.log('SUPABASE_SERVICE_ROLE_KEY:', Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ? 'Loaded' : 'Missing');
-    console.log('Supabase client initialized successfully.');
+    );
 
+    console.log('🔧 Environment check:');
+    console.log('SUPABASE_URL:', Deno.env.get('SUPABASE_URL') ? 'Present ✅' : 'Missing ❌');
+    console.log('SUPABASE_SERVICE_ROLE_KEY:', Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ? 'Present ✅' : 'Missing ❌');
+    console.log('INSTAGRAM_APP_ID:', Deno.env.get('INSTAGRAM_APP_ID') ? 'Present ✅' : 'Missing ❌');
+    console.log('INSTAGRAM_APP_SECRET:', Deno.env.get('INSTAGRAM_APP_SECRET') ? 'Present ✅' : 'Missing ❌');
 
     // Autenticar o usuário
     const authHeader = req.headers.get('Authorization');
@@ -81,33 +86,40 @@ Deno.serve(async (req) => {
       });
     }
 
-    const FACEBOOK_APP_ID = Deno.env.get('FACEBOOK_APP_ID');
-    const FACEBOOK_APP_SECRET = Deno.env.get('FACEBOOK_APP_SECRET');
+    const INSTAGRAM_APP_ID = Deno.env.get('INSTAGRAM_APP_ID') || '673665962294863';
+    const INSTAGRAM_APP_SECRET = Deno.env.get('INSTAGRAM_APP_SECRET');
 
-    if (!FACEBOOK_APP_ID || !FACEBOOK_APP_SECRET) {
-      return new Response(JSON.stringify({ error: 'Facebook API credentials not configured in environment variables.' }), {
+    if (!INSTAGRAM_APP_SECRET) {
+      return new Response(JSON.stringify({ error: 'Instagram API credentials not configured in environment variables.' }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    console.log('🔄 Starting Facebook OAuth token exchange...');
+    console.log('🔄 Starting Instagram OAuth token exchange...');
 
-    // PASSO 1: Trocar o código de autorização por um short-lived user access token
-    const tokenExchangeUrl = `https://graph.facebook.com/v19.0/oauth/access_token?client_id=${FACEBOOK_APP_ID}&redirect_uri=${encodeURIComponent(redirect_uri)}&client_secret=${FACEBOOK_APP_SECRET}&code=${code}`;
+    // PASSO 1: Trocar o código de autorização por um access token
+    const tokenExchangeUrl = `https://api.instagram.com/oauth/access_token`;
 
     const tokenResponse = await fetch(tokenExchangeUrl, {
-      method: 'GET',
+      method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
+        'Content-Type': 'application/x-www-form-urlencoded',
       },
+      body: new URLSearchParams({
+        client_id: INSTAGRAM_APP_ID,
+        client_secret: INSTAGRAM_APP_SECRET,
+        grant_type: 'authorization_code',
+        redirect_uri: redirect_uri,
+        code: code,
+      }).toString(),
     });
 
     if (!tokenResponse.ok) {
       const errorData = await tokenResponse.json();
       console.error('❌ Error exchanging code for token:', errorData);
       return new Response(JSON.stringify({ 
-        error: errorData.error?.message || 'Failed to exchange code for token',
+        error: errorData.error_message || errorData.error?.message || 'Failed to exchange code for token',
         details: errorData 
       }), {
         status: tokenResponse.status,
@@ -115,104 +127,70 @@ Deno.serve(async (req) => {
       });
     }
 
-    const tokenData: FacebookTokenResponse = await tokenResponse.json();
-    console.log('✅ Successfully obtained short-lived user access token');
+    const tokenData: InstagramTokenResponse = await tokenResponse.json();
+    console.log('✅ Successfully obtained Instagram access token');
 
-    // PASSO 2: Converter para long-lived user access token (opcional, mas recomendado)
-    const longLivedTokenUrl = `https://graph.facebook.com/v19.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${FACEBOOK_APP_ID}&client_secret=${FACEBOOK_APP_SECRET}&fb_exchange_token=${tokenData.access_token}`;
-
-    const longLivedResponse = await fetch(longLivedTokenUrl, {
+    // PASSO 2: Obter informações do usuário do Instagram
+    const userInfoResponse = await fetch(`https://graph.instagram.com/me?fields=id,username,account_type&access_token=${tokenData.access_token}`, {
       method: 'GET',
     });
 
-    let userAccessToken = tokenData.access_token;
-    if (longLivedResponse.ok) {
-      const longLivedData: FacebookTokenResponse = await longLivedResponse.json();
-      userAccessToken = longLivedData.access_token;
-      console.log('✅ Successfully obtained long-lived user access token');
-    } else {
-      console.log('⚠️ Failed to get long-lived token, using short-lived token');
-    }
-
-    // PASSO 3: Obter as páginas do Facebook que o usuário gerencia
-    const pagesResponse = await fetch(`https://graph.facebook.com/v19.0/me/accounts?access_token=${userAccessToken}`, {
-      method: 'GET',
-    });
-
-    if (!pagesResponse.ok) {
-      const errorData = await pagesResponse.json();
-      console.error('❌ Error fetching user pages:', errorData);
+    if (!userInfoResponse.ok) {
+      const errorData = await userInfoResponse.json();
+      console.error('❌ Error fetching Instagram user info:', errorData);
       return new Response(JSON.stringify({ 
-        error: 'Failed to fetch user pages',
+        error: 'Failed to fetch Instagram user information',
         details: errorData 
       }), {
-        status: pagesResponse.status,
+        status: userInfoResponse.status,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    const pagesData: FacebookPageResponse = await pagesResponse.json();
-    console.log(`✅ Found ${pagesData.data.length} pages for user`);
+    const userInfo: InstagramUserResponse = await userInfoResponse.json();
+    console.log('✅ Instagram user info retrieved:', userInfo);
 
-    // PASSO 4: Encontrar páginas com Instagram Business Account vinculada
-    let instagramConnection = null;
-
-    for (const page of pagesData.data) {
-      // Verificar se a página tem uma conta do Instagram Business vinculada
-      const instagramCheckResponse = await fetch(`https://graph.facebook.com/v19.0/${page.id}?fields=instagram_business_account&access_token=${page.access_token}`, {
-        method: 'GET',
-      });
-
-      if (instagramCheckResponse.ok) {
-        const instagramCheckData = await instagramCheckResponse.json();
-        
-        if (instagramCheckData.instagram_business_account) {
-          const instagramAccountId = instagramCheckData.instagram_business_account.id;
-          
-          // Obter informações da conta do Instagram
-          const instagramInfoResponse = await fetch(`https://graph.facebook.com/v19.0/${instagramAccountId}?fields=id,username,name,profile_picture_url&access_token=${page.access_token}`, {
-            method: 'GET',
-          });
-
-          if (instagramInfoResponse.ok) {
-            const instagramInfo: InstagramAccountResponse = await instagramInfoResponse.json();
-            
-            instagramConnection = {
-              instagram_account_id: instagramInfo.id,
-              instagram_username: instagramInfo.username,
-              page_id: page.id,
-              page_name: page.name,
-              page_access_token: page.access_token,
-              instagram_name: instagramInfo.name,
-              profile_picture_url: instagramInfo.profile_picture_url
-            };
-            
-            console.log(`✅ Found Instagram Business Account: @${instagramInfo.username}`);
-            break; // Usar a primeira conta encontrada
-          }
-        }
-      }
-    }
-
-    if (!instagramConnection) {
+    // Verificar se é uma conta business
+    if (userInfo.account_type !== 'BUSINESS') {
       return new Response(JSON.stringify({ 
-        error: 'No Instagram Business Account found linked to your Facebook pages. Please ensure you have a Facebook page with an Instagram Business Account connected.',
-        pages_found: pagesData.data.length
+        error: 'Esta integração requer uma conta do Instagram Business. Por favor, converta sua conta para Business no aplicativo do Instagram.',
+        account_type: userInfo.account_type
       }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    // PASSO 5: Salvar a conexão no banco de dados
+    // PASSO 3: Obter informações detalhadas da conta business
+    const businessInfoResponse = await fetch(`https://graph.instagram.com/${userInfo.id}?fields=id,username,name,profile_picture_url,followers_count,media_count&access_token=${tokenData.access_token}`, {
+      method: 'GET',
+    });
+
+    let businessInfo: InstagramAccountResponse = {
+      id: userInfo.id,
+      username: userInfo.username,
+      name: userInfo.username,
+      profile_picture_url: '',
+      followers_count: 0,
+      media_count: 0
+    };
+
+    if (businessInfoResponse.ok) {
+      businessInfo = await businessInfoResponse.json();
+      console.log('✅ Instagram business info retrieved:', businessInfo);
+    } else {
+      console.log('⚠️ Could not fetch detailed business info, using basic info');
+    }
+
+    // PASSO 4: Salvar a conexão no banco de dados
     const { data: savedConnection, error: saveError } = await supabaseClient
       .from('contas_conectadas')
       .upsert({
         user_id: user.id,
-        instagram_account_id: instagramConnection.instagram_account_id,
-        instagram_username: instagramConnection.instagram_username,
-        page_id: instagramConnection.page_id,
-        access_token: instagramConnection.page_access_token, // Page Access Token para enviar mensagens
+        instagram_account_id: businessInfo.id,
+        instagram_username: businessInfo.username,
+        page_id: null, // Para Instagram direto, não há página do Facebook
+        access_token: tokenData.access_token,
         status: 'connected',
         updated_at: new Date().toISOString(),
       }, {
@@ -238,18 +216,20 @@ Deno.serve(async (req) => {
       success: true,
       message: 'Instagram Business Account connected successfully',
       connection: {
-        instagram_account_id: instagramConnection.instagram_account_id,
-        instagram_username: instagramConnection.instagram_username,
-        page_id: instagramConnection.page_id,
-        page_name: instagramConnection.page_name,
-        instagram_name: instagramConnection.instagram_name
+        instagram_account_id: businessInfo.id,
+        instagram_username: businessInfo.username,
+        instagram_name: businessInfo.name,
+        profile_picture_url: businessInfo.profile_picture_url,
+        followers_count: businessInfo.followers_count,
+        media_count: businessInfo.media_count,
+        account_type: userInfo.account_type
       }
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
 
   } catch (error) {
-    console.error('❌ Facebook OAuth Edge Function Error:', error);
+    console.error('❌ Instagram OAuth Edge Function Error:', error);
     return new Response(
       JSON.stringify({
         error: 'Internal server error',

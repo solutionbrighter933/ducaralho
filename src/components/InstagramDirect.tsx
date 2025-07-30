@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Facebook, CheckCircle, AlertCircle, User, Calendar, MessageSquare, RefreshCw, ExternalLink, Loader2, Send } from 'lucide-react';
+import { Instagram, CheckCircle, AlertCircle, User, Calendar, MessageSquare, RefreshCw, ExternalLink, Loader2, Send, Users, Eye, MessageCircle, Hash } from 'lucide-react';
 import { useAuthContext } from './AuthProvider';
 import { supabase } from '../lib/supabase';
 
@@ -7,7 +7,7 @@ interface InstagramDirectProps {
   setActiveSection?: (section: string) => void;
 }
 
-interface FacebookConnection {
+interface InstagramConnection {
   id: string;
   user_id: string;
   instagram_account_id: string;
@@ -20,17 +20,57 @@ interface FacebookConnection {
   ai_prompt: string | null;
 }
 
+interface FacebookPage {
+  id: string;
+  name: string;
+  access_token: string;
+  instagram_business_account?: {
+    id: string;
+    username: string;
+    name: string;
+    profile_picture_url: string;
+  };
+}
+
+interface InstagramMessage {
+  id: string;
+  sender_id: string;
+  message: string;
+  timestamp: string;
+  direction: 'sent' | 'received';
+}
+
+interface InstagramComment {
+  id: string;
+  post_id: string;
+  user_id: string;
+  username: string;
+  text: string;
+  timestamp: string;
+}
+
 const InstagramDirect: React.FC<InstagramDirectProps> = ({ setActiveSection }) => {
   const { user } = useAuthContext();
   const [isConnected, setIsConnected] = useState(false);
-  const [connection, setConnection] = useState<FacebookConnection | null>(null);
+  const [connection, setConnection] = useState<InstagramConnection | null>(null);
+  const [pages, setPages] = useState<FacebookPage[]>([]);
+  const [selectedPage, setSelectedPage] = useState<FacebookPage | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [checkingConnection, setCheckingConnection] = useState(false);
+  const [showPageSelection, setShowPageSelection] = useState(false);
+  
+  // Test messaging states
   const [testRecipientId, setTestRecipientId] = useState('');
   const [testMessage, setTestMessage] = useState('Olá! Esta é uma mensagem de teste do Atendos IA 🤖');
   const [sendingMessage, setSendingMessage] = useState(false);
+  
+  // Messages and comments states
+  const [messages, setMessages] = useState<InstagramMessage[]>([]);
+  const [comments, setComments] = useState<InstagramComment[]>([]);
+  const [loadingMessages, setLoadingMessages] = useState(false);
+  const [loadingComments, setLoadingComments] = useState(false);
 
   // Verificar status da conexão ao carregar
   useEffect(() => {
@@ -47,16 +87,16 @@ const InstagramDirect: React.FC<InstagramDirectProps> = ({ setActiveSection }) =
     const error = urlParams.get('error');
 
     if (error) {
-      setError(`Erro na autenticação do Facebook: ${error}`);
+      setError(`Erro na autorização do Instagram: ${error}`);
       setLoading(false);
       return;
     }
 
     if (code && state) {
       // Verificar se o state é válido
-      const savedState = localStorage.getItem('facebook_oauth_state');
-      if (savedState === state && state === 'teste_negocio_123') {
-        handleFacebookCallback(code);
+      const savedState = localStorage.getItem('instagram_oauth_state');
+      if (savedState === state && state === 'atendos_instagram_oauth_2024') {
+        handleInstagramCallback(code);
         // Limpar parâmetros da URL
         window.history.replaceState({}, document.title, window.location.pathname);
       } else {
@@ -87,26 +127,29 @@ const InstagramDirect: React.FC<InstagramDirectProps> = ({ setActiveSection }) =
       if (data) {
         setIsConnected(true);
         setConnection(data);
-        console.log('✅ Conexão Facebook encontrada:', data);
+        console.log('✅ Conexão Instagram encontrada:', data);
+        
+        // Carregar mensagens e comentários
+        loadMessagesAndComments();
       } else {
         setIsConnected(false);
         setConnection(null);
-        console.log('ℹ️ Nenhuma conexão Facebook encontrada');
+        console.log('ℹ️ Nenhuma conexão Instagram encontrada');
       }
     } catch (err) {
-      console.error('❌ Erro ao verificar conexão Facebook:', err);
+      console.error('❌ Erro ao verificar conexão Instagram:', err);
       setError(err instanceof Error ? err.message : 'Erro ao verificar conexão');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleFacebookCallback = async (code: string) => {
+  const handleInstagramCallback = async (code: string) => {
     try {
       setLoading(true);
       setError(null);
 
-      console.log('🔄 Processando callback do Facebook via Edge Function...');
+      console.log('🔄 Processando callback do Instagram via Edge Function...');
 
       // Obter token de autenticação do usuário
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
@@ -125,7 +168,7 @@ const InstagramDirect: React.FC<InstagramDirectProps> = ({ setActiveSection }) =
         body: JSON.stringify({
           code,
           redirect_uri: 'https://atendos.com.br/instagram/callback',
-          state: 'teste_negocio_123'
+          state: 'atendos_instagram_oauth_2024'
         }),
       });
 
@@ -137,6 +180,14 @@ const InstagramDirect: React.FC<InstagramDirectProps> = ({ setActiveSection }) =
       const result = await response.json();
       
       if (!result.success) {
+        // Se retornou páginas para seleção
+        if (result.pages && result.pages.length > 0) {
+          setPages(result.pages);
+          setShowPageSelection(true);
+          setSuccess('Login realizado! Selecione a página com sua conta do Instagram.');
+          return;
+        }
+        
         throw new Error(result.error || 'Falha na conexão com Instagram');
       }
 
@@ -170,9 +221,13 @@ const InstagramDirect: React.FC<InstagramDirectProps> = ({ setActiveSection }) =
       });
       
       // Limpar state do localStorage
-      localStorage.removeItem('facebook_oauth_state');
+      localStorage.removeItem('instagram_oauth_state');
 
+      setSuccess('✅ Instagram conectado com sucesso!');
       console.log('✅ Conexão Instagram estabelecida com sucesso');
+      
+      // Carregar mensagens e comentários
+      loadMessagesAndComments();
     } catch (err) {
       console.error('❌ Erro no callback do Instagram:', err);
       setError(err instanceof Error ? err.message : 'Erro ao processar conexão com Instagram');
@@ -181,15 +236,138 @@ const InstagramDirect: React.FC<InstagramDirectProps> = ({ setActiveSection }) =
     }
   };
 
-  const handleFacebookLogin = () => {
-    // URL de autenticação do Facebook atualizada
-    const facebookAuthUrl = `https://www.facebook.com/v19.0/dialog/oauth?client_id=1964984554261839&redirect_uri=https://atendos.com.br/instagram/callback&state=teste_negocio_123&scope=pages_show_list,instagram_basic`;
+  const handleInstagramLogin = () => {
+    // URL de autenticação do Instagram atualizada
+    const instagramAuthUrl = `https://www.instagram.com/oauth/authorize?force_reauth=true&client_id=673665962294863&redirect_uri=https://atendos.com.br/instagram/callback&response_type=code&scope=instagram_business_basic%2Cinstagram_business_manage_messages%2Cinstagram_business_manage_comments%2Cinstagram_business_content_publish%2Cinstagram_business_manage_insights`;
     
-    // Salvar o state atualizado no localStorage para verificação posterior
-    localStorage.setItem('facebook_oauth_state', 'teste_negocio_123');
+    // Salvar o state no localStorage para verificação posterior
+    localStorage.setItem('instagram_oauth_state', 'atendos_instagram_oauth_2024');
     
-    // Redirecionar para o Facebook
-    window.location.href = facebookAuthUrl;
+    // Redirecionar para o Instagram
+    window.location.href = instagramAuthUrl;
+  };
+
+  const handlePageSelection = async (page: FacebookPage) => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      if (!page.instagram_business_account) {
+        throw new Error('Esta página não tem uma conta do Instagram Business vinculada');
+      }
+
+      console.log('📄 Selecionando página:', page.name);
+
+      // Obter token de autenticação do usuário
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError || !session?.access_token) {
+        throw new Error('Usuário não autenticado');
+      }
+
+      // Salvar a conexão selecionada
+      const { data: savedConnection, error: saveError } = await supabase
+        .from('contas_conectadas')
+        .upsert({
+          user_id: user?.id,
+          instagram_account_id: page.instagram_business_account.id,
+          instagram_username: page.instagram_business_account.username,
+          page_id: page.id,
+          access_token: page.access_token,
+          status: 'connected',
+          updated_at: new Date().toISOString(),
+        }, {
+          onConflict: 'user_id,instagram_account_id'
+        })
+        .select()
+        .single();
+
+      if (saveError) {
+        throw new Error('Erro ao salvar conexão: ' + saveError.message);
+      }
+
+      setConnection(savedConnection);
+      setIsConnected(true);
+      setShowPageSelection(false);
+      setPages([]);
+      setSelectedPage(page);
+      
+      setSuccess(`✅ Página "${page.name}" conectada com sucesso!`);
+      
+      // Carregar mensagens e comentários
+      loadMessagesAndComments();
+    } catch (err) {
+      console.error('❌ Erro ao selecionar página:', err);
+      setError(err instanceof Error ? err.message : 'Erro ao selecionar página');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadMessagesAndComments = async () => {
+    if (!connection) return;
+
+    setLoadingMessages(true);
+    setLoadingComments(true);
+
+    try {
+      // Simular carregamento de mensagens do Instagram
+      setTimeout(() => {
+        const mockMessages: InstagramMessage[] = [
+          {
+            id: '1',
+            sender_id: 'user123',
+            message: 'Olá! Gostaria de saber mais sobre seus produtos.',
+            timestamp: new Date(Date.now() - 3600000).toISOString(),
+            direction: 'received'
+          },
+          {
+            id: '2',
+            sender_id: 'user123',
+            message: 'Olá! Temos vários produtos disponíveis. Em que posso ajudá-lo?',
+            timestamp: new Date(Date.now() - 3000000).toISOString(),
+            direction: 'sent'
+          },
+          {
+            id: '3',
+            sender_id: 'user456',
+            message: 'Vocês fazem entrega?',
+            timestamp: new Date(Date.now() - 1800000).toISOString(),
+            direction: 'received'
+          }
+        ];
+        setMessages(mockMessages);
+        setLoadingMessages(false);
+      }, 1000);
+
+      // Simular carregamento de comentários do Instagram
+      setTimeout(() => {
+        const mockComments: InstagramComment[] = [
+          {
+            id: '1',
+            post_id: 'post123',
+            user_id: 'commenter1',
+            username: '@maria_silva',
+            text: 'Adorei este produto! Vocês entregam em todo o Brasil?',
+            timestamp: new Date(Date.now() - 7200000).toISOString()
+          },
+          {
+            id: '2',
+            post_id: 'post123',
+            user_id: 'commenter2',
+            username: '@joao_santos',
+            text: 'Qual o preço?',
+            timestamp: new Date(Date.now() - 5400000).toISOString()
+          }
+        ];
+        setComments(mockComments);
+        setLoadingComments(false);
+      }, 1500);
+    } catch (err) {
+      console.error('❌ Erro ao carregar mensagens e comentários:', err);
+      setLoadingMessages(false);
+      setLoadingComments(false);
+    }
   };
 
   const handleDisconnect = async () => {
@@ -211,10 +389,13 @@ const InstagramDirect: React.FC<InstagramDirectProps> = ({ setActiveSection }) =
 
       setIsConnected(false);
       setConnection(null);
+      setMessages([]);
+      setComments([]);
       
-      console.log('✅ Desconectado do Facebook com sucesso');
+      setSuccess('✅ Desconectado do Instagram com sucesso!');
+      console.log('✅ Desconectado do Instagram com sucesso');
     } catch (err) {
-      console.error('❌ Erro ao desconectar Facebook:', err);
+      console.error('❌ Erro ao desconectar Instagram:', err);
       setError(err instanceof Error ? err.message : 'Erro ao desconectar');
     } finally {
       setCheckingConnection(false);
@@ -275,6 +456,16 @@ const InstagramDirect: React.FC<InstagramDirectProps> = ({ setActiveSection }) =
       setSuccess(`✅ Mensagem enviada com sucesso para ${testRecipientId}!`);
       setTestRecipientId('');
       
+      // Adicionar mensagem enviada à lista local
+      const newMessage: InstagramMessage = {
+        id: `sent-${Date.now()}`,
+        sender_id: testRecipientId,
+        message: testMessage,
+        timestamp: new Date().toISOString(),
+        direction: 'sent'
+      };
+      setMessages(prev => [...prev, newMessage]);
+      
       // Limpar mensagem de sucesso após 5 segundos
       setTimeout(() => setSuccess(null), 5000);
 
@@ -296,14 +487,30 @@ const InstagramDirect: React.FC<InstagramDirectProps> = ({ setActiveSection }) =
     });
   };
 
+  const formatTimeAgo = (dateString: string) => {
+    const now = new Date();
+    const date = new Date(dateString);
+    const diffMs = now.getTime() - date.getTime();
+    const diffMinutes = Math.floor(diffMs / (1000 * 60));
+    
+    if (diffMinutes < 1) return 'agora';
+    if (diffMinutes < 60) return `${diffMinutes} min atrás`;
+    
+    const diffHours = Math.floor(diffMinutes / 60);
+    if (diffHours < 24) return `${diffHours}h atrás`;
+    
+    const diffDays = Math.floor(diffHours / 24);
+    return `${diffDays}d atrás`;
+  };
+
   if (loading) {
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Login com Facebook</h1>
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Login com Instagram</h1>
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-8 text-center">
-          <Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto mb-4" />
+          <Loader2 className="w-8 h-8 animate-spin text-purple-600 mx-auto mb-4" />
           <p className="text-gray-600 dark:text-gray-400">Verificando conexão...</p>
         </div>
       </div>
@@ -313,7 +520,7 @@ const InstagramDirect: React.FC<InstagramDirectProps> = ({ setActiveSection }) =
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Login com Facebook</h1>
+        <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Login com Instagram</h1>
         <div className="flex space-x-3">
           <button
             onClick={handleRefreshConnection}
@@ -358,6 +565,56 @@ const InstagramDirect: React.FC<InstagramDirectProps> = ({ setActiveSection }) =
         </div>
       )}
 
+      {/* Page Selection Modal */}
+      {showPageSelection && pages.length > 0 && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-6 max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto">
+            <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
+              Selecione sua Página do Facebook
+            </h3>
+            <p className="text-gray-600 dark:text-gray-400 mb-6">
+              Escolha a página que tem sua conta do Instagram Business vinculada:
+            </p>
+            
+            <div className="space-y-4">
+              {pages.map((page) => (
+                <div
+                  key={page.id}
+                  className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-4">
+                      <div className="w-12 h-12 bg-gradient-to-r from-purple-500 to-pink-500 rounded-lg flex items-center justify-center">
+                        <Instagram className="w-6 h-6 text-white" />
+                      </div>
+                      <div>
+                        <h4 className="font-medium text-gray-900 dark:text-white">{page.name}</h4>
+                        {page.instagram_business_account ? (
+                          <p className="text-sm text-green-600 dark:text-green-400">
+                            ✅ Instagram: @{page.instagram_business_account.username}
+                          </p>
+                        ) : (
+                          <p className="text-sm text-red-600 dark:text-red-400">
+                            ❌ Sem conta do Instagram vinculada
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handlePageSelection(page)}
+                      disabled={!page.instagram_business_account}
+                      className="px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:from-purple-600 hover:to-pink-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Selecionar
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Connection Status */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
@@ -377,7 +634,7 @@ const InstagramDirect: React.FC<InstagramDirectProps> = ({ setActiveSection }) =
               {isConnected ? (
                 <CheckCircle className="w-6 h-6 text-green-600 dark:text-green-400" />
               ) : (
-                <Facebook className="w-6 h-6 text-red-600 dark:text-red-400" />
+                <Instagram className="w-6 h-6 text-red-600 dark:text-red-400" />
               )}
             </div>
           </div>
@@ -423,120 +680,223 @@ const InstagramDirect: React.FC<InstagramDirectProps> = ({ setActiveSection }) =
       {/* Main Content */}
       {!isConnected ? (
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-8 text-center">
-          <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Facebook className="w-8 h-8 text-blue-600 dark:text-blue-400" />
+          <div className="w-16 h-16 bg-gradient-to-r from-purple-100 to-pink-100 dark:from-purple-900/30 dark:to-pink-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
+            <Instagram className="w-8 h-8 text-purple-600 dark:text-purple-400" />
           </div>
           
           <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
-            Conecte sua conta do Facebook
+            Conecte sua conta do Instagram
           </h2>
           <p className="text-gray-600 dark:text-gray-400 mb-6">
-            Para acessar o Instagram Direct, você precisa fazer login com o Facebook e vincular sua conta do Instagram.
+            Para acessar o Instagram Direct e gerenciar mensagens, você precisa conectar sua conta do Instagram Business.
           </p>
           
-          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-6">
+          <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg p-4 mb-6">
             <div className="flex items-center space-x-2">
-              <MessageSquare className="w-5 h-5 text-blue-600 dark:text-blue-400 flex-shrink-0" />
-              <p className="text-sm text-blue-700 dark:text-blue-300">
-                Conecte sua conta do Facebook para acessar mensagens do Instagram Direct.
+              <MessageSquare className="w-5 h-5 text-purple-600 dark:text-purple-400 flex-shrink-0" />
+              <p className="text-sm text-purple-700 dark:text-purple-300">
+                Conecte sua conta do Instagram Business para gerenciar mensagens diretas e comentários.
               </p>
             </div>
           </div>
           
           <button
-            onClick={handleFacebookLogin}
-            className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+            onClick={handleInstagramLogin}
+            className="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-lg hover:from-purple-700 hover:to-pink-700 transition-colors font-medium"
           >
-            Login com Facebook
+            Login com Instagram
           </button>
         </div>
       ) : (
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Conexão Ativa</h3>
-            <button
-              onClick={handleDisconnect}
-              disabled={checkingConnection}
-              className="flex items-center space-x-2 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {checkingConnection ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <AlertCircle className="w-4 h-4" />
+        <div className="space-y-6">
+          {/* Connection Info */}
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Conexão Ativa</h3>
+              <button
+                onClick={handleDisconnect}
+                disabled={checkingConnection}
+                className="flex items-center space-x-2 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {checkingConnection ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <AlertCircle className="w-4 h-4" />
+                )}
+                <span>Desconectar</span>
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
+                <div className="flex items-center space-x-2">
+                  <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400" />
+                  <h4 className="font-medium text-green-800 dark:text-green-300">Instagram Conectado</h4>
+                </div>
+                <p className="text-sm text-green-700 dark:text-green-400 mt-1">
+                  Sua conta do Instagram está conectada e funcionando corretamente.
+                </p>
+              </div>
+
+              {connection && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
+                    <h5 className="font-medium text-gray-900 dark:text-white mb-2">Informações da Conta</h5>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-gray-600 dark:text-gray-400">Instagram ID:</span>
+                        <span className="font-mono text-gray-900 dark:text-white">{connection.instagram_account_id}</span>
+                      </div>
+                      {connection.instagram_username && (
+                        <div className="flex justify-between">
+                          <span className="text-gray-600 dark:text-gray-400">Username:</span>
+                          <span className="font-mono text-gray-900 dark:text-white">@{connection.instagram_username}</span>
+                        </div>
+                      )}
+                      {connection.page_id && (
+                        <div className="flex justify-between">
+                          <span className="text-gray-600 dark:text-gray-400">Página ID:</span>
+                          <span className="font-mono text-gray-900 dark:text-white">{connection.page_id}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
+                    <h5 className="font-medium text-gray-900 dark:text-white mb-2">Status da Conexão</h5>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-gray-600 dark:text-gray-400">Status:</span>
+                        <span className="text-green-600 dark:text-green-400 font-medium">{connection.status}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600 dark:text-gray-400">Conectado em:</span>
+                        <span className="text-gray-900 dark:text-white">{formatDate(connection.created_at)}</span>
+                      </div>
+                      {connection.updated_at && (
+                        <div className="flex justify-between">
+                          <span className="text-gray-600 dark:text-gray-400">Atualizado em:</span>
+                          <span className="text-gray-900 dark:text-white">{formatDate(connection.updated_at)}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
               )}
-              <span>Desconectar</span>
-            </button>
+            </div>
           </div>
 
-          <div className="space-y-4">
-            <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
-              <div className="flex items-center space-x-2">
-                <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400" />
-                <h4 className="font-medium text-green-800 dark:text-green-300">Facebook Conectado</h4>
-              </div>
-              <p className="text-sm text-green-700 dark:text-green-400 mt-1">
-                Sua conta do Facebook está conectada e funcionando corretamente.
-              </p>
+          {/* Messages Management Section */}
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center space-x-2">
+                <MessageCircle className="w-5 h-5 text-purple-600" />
+                <span>Gerenciamento de Mensagens</span>
+              </h3>
+              <button
+                onClick={loadMessagesAndComments}
+                disabled={loadingMessages}
+                className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+              >
+                <RefreshCw className={`w-4 h-4 ${loadingMessages ? 'animate-spin' : ''}`} />
+              </button>
             </div>
 
-            {connection && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
-                  <h5 className="font-medium text-gray-900 dark:text-white mb-2">Informações da Conta</h5>
-                  <div className="space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-gray-600 dark:text-gray-400">Instagram ID:</span>
-                      <span className="font-mono text-gray-900 dark:text-white">{connection.instagram_account_id}</span>
+            {loadingMessages ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="w-6 h-6 animate-spin text-purple-600" />
+                <span className="ml-2 text-gray-600 dark:text-gray-400">Carregando mensagens...</span>
+              </div>
+            ) : messages.length > 0 ? (
+              <div className="space-y-3 mb-6">
+                {messages.map((message) => (
+                  <div
+                    key={message.id}
+                    className={`flex ${message.direction === 'sent' ? 'justify-end' : 'justify-start'}`}
+                  >
+                    <div className={`max-w-xs lg:max-w-md px-4 py-3 rounded-2xl ${
+                      message.direction === 'sent'
+                        ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-br-sm'
+                        : 'bg-gray-700 dark:bg-gray-600 text-white rounded-bl-sm'
+                    }`}>
+                      <p className="text-sm leading-relaxed">{message.message}</p>
+                      <div className="flex items-center justify-between mt-2">
+                        <p className="text-xs opacity-75">
+                          {formatTimeAgo(message.timestamp)}
+                        </p>
+                        <span className="text-xs font-medium">
+                          {message.direction === 'sent' ? '📤' : '📥'}
+                        </span>
+                      </div>
                     </div>
-                    {connection.instagram_username && (
-                      <div className="flex justify-between">
-                        <span className="text-gray-600 dark:text-gray-400">Username:</span>
-                        <span className="font-mono text-gray-900 dark:text-white">@{connection.instagram_username}</span>
-                      </div>
-                    )}
-                    {connection.page_id && (
-                      <div className="flex justify-between">
-                        <span className="text-gray-600 dark:text-gray-400">Página ID:</span>
-                        <span className="font-mono text-gray-900 dark:text-white">{connection.page_id}</span>
-                      </div>
-                    )}
                   </div>
-                </div>
-
-                <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
-                  <h5 className="font-medium text-gray-900 dark:text-white mb-2">Status da Conexão</h5>
-                  <div className="space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-gray-600 dark:text-gray-400">Status:</span>
-                      <span className="text-green-600 dark:text-green-400 font-medium">{connection.status}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600 dark:text-gray-400">Conectado em:</span>
-                      <span className="text-gray-900 dark:text-white">{formatDate(connection.created_at)}</span>
-                    </div>
-                    {connection.updated_at && (
-                      <div className="flex justify-between">
-                        <span className="text-gray-600 dark:text-gray-400">Atualizado em:</span>
-                        <span className="text-gray-900 dark:text-white">{formatDate(connection.updated_at)}</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-8">
+                <MessageCircle className="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
+                <p className="text-gray-500 dark:text-gray-400 text-sm">
+                  Nenhuma mensagem ainda
+                </p>
               </div>
             )}
+          </div>
 
-            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-              <h4 className="font-medium text-blue-800 dark:text-blue-300 mb-2">🎉 Próximos Passos</h4>
-              <ul className="text-sm text-blue-700 dark:text-blue-400 space-y-1">
-                <li>• Acesse a aba "Conversas" para ver mensagens do Instagram</li>
-                <li>• Configure prompts de IA em "Treinamento I.A"</li>
-                <li>• Monitore atividades no "Dashboard"</li>
-              </ul>
+          {/* Comments Management Section */}
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center space-x-2">
+                <Hash className="w-5 h-5 text-blue-600" />
+                <span>Gerenciamento de Comentários</span>
+              </h3>
+              <button
+                onClick={loadMessagesAndComments}
+                disabled={loadingComments}
+                className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+              >
+                <RefreshCw className={`w-4 h-4 ${loadingComments ? 'animate-spin' : ''}`} />
+              </button>
             </div>
+
+            {loadingComments ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+                <span className="ml-2 text-gray-600 dark:text-gray-400">Carregando comentários...</span>
+              </div>
+            ) : comments.length > 0 ? (
+              <div className="space-y-4">
+                {comments.map((comment) => (
+                  <div key={comment.id} className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
+                    <div className="flex items-start space-x-3">
+                      <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center">
+                        <User className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-center space-x-2 mb-1">
+                          <span className="font-medium text-gray-900 dark:text-white">{comment.username}</span>
+                          <span className="text-xs text-gray-500 dark:text-gray-400">{formatTimeAgo(comment.timestamp)}</span>
+                        </div>
+                        <p className="text-gray-700 dark:text-gray-300 text-sm">{comment.text}</p>
+                        <button className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 mt-2">
+                          Responder
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-8">
+                <Hash className="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
+                <p className="text-gray-500 dark:text-gray-400 text-sm">
+                  Nenhum comentário ainda
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Test Message Section */}
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 mt-6">
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Teste de Envio de Mensagem</h3>
             <div className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -595,40 +955,32 @@ const InstagramDirect: React.FC<InstagramDirectProps> = ({ setActiveSection }) =
               </div>
             </div>
           </div>
-          
-          <div className="mt-4 p-3 bg-blue-100 dark:bg-blue-800/30 rounded-lg">
-            <p className="text-sm text-blue-800 dark:text-blue-200">
-              <strong>💡 Como obter o ID do destinatário:</strong> O ID do usuário do Instagram é um número único. 
-              Você pode obtê-lo através da API do Instagram ou usando ferramentas de desenvolvedor quando o usuário 
-              interage com sua conta comercial.
-            </p>
-          </div>
         </div>
       )}
 
       {/* Information Card */}
-      <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-6">
-        <h3 className="text-lg font-semibold text-blue-900 dark:text-blue-100 mb-4">📱 Como funciona a integração</h3>
+      <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg p-6">
+        <h3 className="text-lg font-semibold text-purple-900 dark:text-purple-100 mb-4">📱 Como funciona a integração</h3>
         <div className="space-y-3">
           <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center text-sm font-bold">1</div>
+            <div className="w-8 h-8 bg-purple-600 text-white rounded-full flex items-center justify-center text-sm font-bold">1</div>
             <div>
-              <p className="font-medium text-blue-900 dark:text-blue-100">Conecte com Facebook</p>
-              <p className="text-sm text-blue-700 dark:text-blue-300">Autorize o acesso à sua conta do Facebook</p>
+              <p className="font-medium text-purple-900 dark:text-purple-100">Conecte com Instagram</p>
+              <p className="text-sm text-purple-700 dark:text-purple-300">Autorize o acesso à sua conta do Instagram Business</p>
             </div>
           </div>
           <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center text-sm font-bold">2</div>
+            <div className="w-8 h-8 bg-purple-600 text-white rounded-full flex items-center justify-center text-sm font-bold">2</div>
             <div>
-              <p className="font-medium text-blue-900 dark:text-blue-100">Vincule o Instagram</p>
-              <p className="text-sm text-blue-700 dark:text-blue-300">Conecte sua conta comercial do Instagram</p>
+              <p className="font-medium text-purple-900 dark:text-purple-100">Gerencie Mensagens</p>
+              <p className="text-sm text-purple-700 dark:text-purple-300">Visualize e responda mensagens diretas do Instagram</p>
             </div>
           </div>
           <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center text-sm font-bold">3</div>
+            <div className="w-8 h-8 bg-purple-600 text-white rounded-full flex items-center justify-center text-sm font-bold">3</div>
             <div>
-              <p className="font-medium text-blue-900 dark:text-blue-100">Gerencie mensagens</p>
-              <p className="text-sm text-blue-700 dark:text-blue-300">Visualize e responda mensagens diretas do Instagram</p>
+              <p className="font-medium text-purple-900 dark:text-purple-100">Gerencie Comentários</p>
+              <p className="text-sm text-purple-700 dark:text-purple-300">Responda comentários em posts diretamente da plataforma</p>
             </div>
           </div>
         </div>

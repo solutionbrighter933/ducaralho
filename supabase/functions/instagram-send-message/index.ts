@@ -19,7 +19,10 @@ interface InstagramAPIResponse {
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
+    return new Response(null, {
+      status: 204,
+      headers: corsHeaders,
+    });
   }
 
   try {
@@ -27,6 +30,10 @@ Deno.serve(async (req) => {
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
+
+    console.log('🔧 Environment check:');
+    console.log('SUPABASE_URL:', Deno.env.get('SUPABASE_URL') ? 'Present ✅' : 'Missing ❌');
+    console.log('SUPABASE_SERVICE_ROLE_KEY:', Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ? 'Present ✅' : 'Missing ❌');
 
     // Autenticar o usuário
     const authHeader = req.headers.get('Authorization');
@@ -94,7 +101,7 @@ Deno.serve(async (req) => {
     }
 
     // Enviar mensagem via Instagram API
-    const instagramApiUrl = `https://graph.facebook.com/v19.0/${connection.instagram_account_id}/messages`;
+    const instagramApiUrl = `https://graph.instagram.com/v21.0/me/messages`;
     
     const messagePayload = {
       recipient: {
@@ -106,6 +113,7 @@ Deno.serve(async (req) => {
     };
 
     console.log('📡 Calling Instagram API:', instagramApiUrl);
+    console.log('📦 Message payload:', messagePayload);
 
     const instagramResponse = await fetch(instagramApiUrl, {
       method: 'POST',
@@ -120,8 +128,24 @@ Deno.serve(async (req) => {
 
     if (!instagramResponse.ok) {
       console.error('❌ Instagram API error:', responseData);
+      
+      // Tratar erros específicos da API do Instagram
+      let errorMessage = 'Failed to send Instagram message';
+      
+      if (responseData.error) {
+        if (responseData.error.code === 10 || responseData.error.message?.includes('Application does not have permission')) {
+          errorMessage = 'Permissões insuficientes. Verifique se sua conta tem as permissões necessárias para enviar mensagens.';
+        } else if (responseData.error.code === 100 || responseData.error.message?.includes('Invalid parameter')) {
+          errorMessage = 'ID do destinatário inválido. Verifique se o ID está correto.';
+        } else if (responseData.error.code === 200 || responseData.error.message?.includes('Permissions error')) {
+          errorMessage = 'Erro de permissões. O destinatário pode não ter iniciado uma conversa com sua conta.';
+        } else {
+          errorMessage = responseData.error.message || errorMessage;
+        }
+      }
+      
       return new Response(JSON.stringify({ 
-        error: 'Failed to send Instagram message',
+        error: errorMessage,
         details: responseData,
         instagram_account_id: connection.instagram_account_id,
         api_url: instagramApiUrl
@@ -142,7 +166,7 @@ Deno.serve(async (req) => {
         direcao: 'sent', // Mensagem enviada por nós
         data_hora: new Date().toISOString(),
         user_id: user.id,
-        organization_id: connection.organization_id || null,
+        organization_id: null, // Pode ser null para conexões diretas do Instagram
       });
 
     if (saveError) {
@@ -157,7 +181,8 @@ Deno.serve(async (req) => {
       message: 'Instagram message sent successfully',
       instagram_response: responseData,
       recipient_id,
-      message_text
+      message_text,
+      timestamp: new Date().toISOString()
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
