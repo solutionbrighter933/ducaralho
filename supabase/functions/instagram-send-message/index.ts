@@ -10,6 +10,8 @@ const corsHeaders = {
 interface SendMessageRequest {
   recipient_id: string;
   message_text: string;
+  instagram_account_id: string;
+  page_access_token: string;
 }
 
 interface InstagramAPIResponse {
@@ -26,14 +28,14 @@ Deno.serve(async (req) => {
   }
 
   try {
+    console.log('🔧 Instagram Send Message Edge Function started');
+    
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    console.log('🔧 Environment check:');
-    console.log('SUPABASE_URL:', Deno.env.get('SUPABASE_URL') ? 'Present ✅' : 'Missing ❌');
-    console.log('SUPABASE_SERVICE_ROLE_KEY:', Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ? 'Present ✅' : 'Missing ❌');
+    console.log('✅ Supabase client initialized');
 
     // Autenticar o usuário
     const authHeader = req.headers.get('Authorization');
@@ -54,6 +56,8 @@ Deno.serve(async (req) => {
       });
     }
 
+    console.log('✅ User authenticated:', user.id);
+
     if (req.method !== 'POST') {
       return new Response(JSON.stringify({ error: 'Method not allowed' }), {
         status: 405,
@@ -61,7 +65,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    const { recipient_id, message_text }: SendMessageRequest = await req.json();
+    const { recipient_id, message_text, instagram_account_id, page_access_token }: SendMessageRequest = await req.json();
 
     if (!recipient_id || !message_text) {
       return new Response(JSON.stringify({ error: 'Missing required parameters: recipient_id, message_text' }), {
@@ -72,18 +76,18 @@ Deno.serve(async (req) => {
 
     console.log(`📤 Sending Instagram message to ${recipient_id}...`);
 
-    // Buscar a conexão do Instagram do usuário
+    // Buscar a conexão do Facebook/Instagram do usuário
     const { data: connection, error: connectionError } = await supabaseClient
-      .from('contas_conectadas')
+      .from('facebook_connections')
       .select('*')
       .eq('user_id', user.id)
       .eq('status', 'connected')
       .maybeSingle();
 
     if (connectionError) {
-      console.error('❌ Error fetching Instagram connection:', connectionError);
+      console.error('❌ Error fetching Facebook connection:', connectionError);
       return new Response(JSON.stringify({ 
-        error: 'Failed to fetch Instagram connection',
+        error: 'Failed to fetch Facebook connection',
         details: connectionError 
       }), {
         status: 500,
@@ -93,15 +97,40 @@ Deno.serve(async (req) => {
 
     if (!connection) {
       return new Response(JSON.stringify({ 
-        error: 'No Instagram connection found. Please connect your Instagram account first.' 
+        error: 'No Facebook connection found. Please connect your Facebook account first.' 
       }), {
         status: 404,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
+    // Encontrar a página selecionada
+    const selectedPage = connection.pages?.find((page: any) => page.id === connection.selected_page_id);
+    
+    if (!selectedPage) {
+      return new Response(JSON.stringify({ 
+        error: 'No Facebook page selected. Please select a page with Instagram Business account.' 
+      }), {
+        status: 404,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Usar o token da página ou o fornecido
+    const accessToken = page_access_token || selectedPage.access_token;
+    const instagramAccountId = instagram_account_id || connection.selected_instagram_account_id;
+
+    if (!accessToken || !instagramAccountId) {
+      return new Response(JSON.stringify({ 
+        error: 'Missing access token or Instagram account ID' 
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     // Enviar mensagem via Instagram API
-    const instagramApiUrl = `https://graph.instagram.com/v21.0/me/messages`;
+    const instagramApiUrl = `https://graph.facebook.com/v21.0/${instagramAccountId}/messages`;
     
     const messagePayload = {
       recipient: {
@@ -119,7 +148,7 @@ Deno.serve(async (req) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${connection.access_token}`,
+        'Authorization': `Bearer ${accessToken}`,
       },
       body: JSON.stringify(messagePayload),
     });
@@ -139,6 +168,8 @@ Deno.serve(async (req) => {
           errorMessage = 'ID do destinatário inválido. Verifique se o ID está correto.';
         } else if (responseData.error.code === 200 || responseData.error.message?.includes('Permissions error')) {
           errorMessage = 'Erro de permissões. O destinatário pode não ter iniciado uma conversa com sua conta.';
+        } else if (responseData.error.message?.includes('Cannot message users who are not connected')) {
+          errorMessage = 'Não é possível enviar mensagem para usuários que não estão conectados. O usuário precisa iniciar uma conversa primeiro.';
         } else {
           errorMessage = responseData.error.message || errorMessage;
         }
@@ -147,7 +178,7 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ 
         error: errorMessage,
         details: responseData,
-        instagram_account_id: connection.instagram_account_id,
+        instagram_account_id: instagramAccountId,
         api_url: instagramApiUrl
       }), {
         status: instagramResponse.status,
@@ -157,16 +188,22 @@ Deno.serve(async (req) => {
 
     console.log('✅ Instagram message sent successfully:', responseData);
 
-    // Salvar a mensagem enviada na tabela conversas_instagram
+    // Salvar a mensagem enviada na tabela instagram_messages
     const { error: saveError } = await supabaseClient
-      .from('conversas_instagram')
+      .from('instagram_messages')
       .insert({
+        instagram_account_id: instagramAccountId,
         sender_id: recipient_id,
-        mensagem: message_text,
-        direcao: 'sent', // Mensagem enviada por nós
-        data_hora: new Date().toISOString(),
+        message: message_text,
+        direction: 'sent', // Mensagem enviada por nós
+        timestamp: new Date().toISOString(),
         user_id: user.id,
-        organization_id: null, // Pode ser null para conexões diretas do Instagram
+        message_id: responseData.message_id || null,
+        metadata: {
+          api_response: responseData,
+          sent_via: 'facebook_api',
+          page_id: selectedPage.id
+        }
       });
 
     if (saveError) {
@@ -182,6 +219,7 @@ Deno.serve(async (req) => {
       instagram_response: responseData,
       recipient_id,
       message_text,
+      instagram_account_id: instagramAccountId,
       timestamp: new Date().toISOString()
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
