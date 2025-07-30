@@ -182,14 +182,14 @@ const InstagramDirect: React.FC<InstagramDirectProps> = ({ setActiveSection }) =
   };
 
   const handleFacebookLogin = () => {
-    // URL de autenticação do Facebook atualizada
-    const facebookAuthUrl = `https://www.facebook.com/v19.0/dialog/oauth?client_id=1964984554261839&redirect_uri=https://atendos.com.br/instagram/callback&state=teste_negocio_123&scope=pages_show_list,instagram_basic`;
+    // URL de autenticação do Instagram atualizada
+    const instagramAuthUrl = `https://www.instagram.com/oauth/authorize?force_reauth=true&client_id=673665962294863&redirect_uri=https://atendos.com.br/instagram/callback&response_type=code&scope=instagram_business_basic%2Cinstagram_business_manage_messages%2Cinstagram_business_manage_comments%2Cinstagram_business_content_publish%2Cinstagram_business_manage_insights`;
     
     // Salvar o state atualizado no localStorage para verificação posterior
     localStorage.setItem('facebook_oauth_state', 'teste_negocio_123');
     
-    // Redirecionar para o Facebook
-    window.location.href = facebookAuthUrl;
+    // Redirecionar para o Instagram
+    window.location.href = instagramAuthUrl;
   };
 
   const handleDisconnect = async () => {
