@@ -50,6 +50,8 @@ interface InstagramComment {
   username: string;
   text: string;
   timestamp: string;
+  is_reply?: boolean;
+  parent_comment_id?: string | null;
 }
 
 const InstagramDirect: React.FC<InstagramDirectProps> = ({ setActiveSection }) => {
@@ -74,6 +76,11 @@ const InstagramDirect: React.FC<InstagramDirectProps> = ({ setActiveSection }) =
   const [comments, setComments] = useState<InstagramComment[]>([]);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [loadingComments, setLoadingComments] = useState(false);
+  const [loadingPages, setLoadingPages] = useState(false);
+  
+  // Reply states
+  const [replyInput, setReplyInput] = useState<Record<string, string>>({});
+  const [sendingReply, setSendingReply] = useState<Record<string, boolean>>({});
 
   // Verificar status da conexão ao carregar
   useEffect(() => {
@@ -111,6 +118,29 @@ const InstagramDirect: React.FC<InstagramDirectProps> = ({ setActiveSection }) =
     }
   }, []);
 
+  // Initialize mock comment when connected
+  useEffect(() => {
+    if (isConnected && comments.length === 0) {
+      initializeMockComment();
+    }
+  }, [isConnected]);
+
+  const initializeMockComment = () => {
+    const mockComments: InstagramComment[] = [
+      {
+        id: 'mock-comment-1',
+        post_id: 'mock-post-123',
+        user_id: 'mock-user-456',
+        username: 'cliente_exemplo',
+        text: 'Adorei esse produto! Onde posso comprar? 😍',
+        timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(), // 2 horas atrás
+        is_reply: false,
+        parent_comment_id: null
+      }
+    ];
+    setComments(mockComments);
+  };
+
   const checkConnectionStatus = async () => {
     try {
       setLoading(true);
@@ -120,7 +150,6 @@ const InstagramDirect: React.FC<InstagramDirectProps> = ({ setActiveSection }) =
         .from('facebook_connections')
         .select('*')
         .eq('user_id', user?.id)
-        .eq('status', 'connected')
         .maybeSingle();
 
       if (fetchError && fetchError.code !== 'PGRST116') {
@@ -128,20 +157,34 @@ const InstagramDirect: React.FC<InstagramDirectProps> = ({ setActiveSection }) =
       }
 
       if (data) {
-        setIsConnected(true);
         setConnection(data);
         console.log('✅ Conexão Facebook encontrada:', data);
         
+        // Determinar se está conectado baseado no status
+        const isFullyConnected = data.status === 'connected';
+        setIsConnected(isFullyConnected);
+        
+        // Se tem páginas mas precisa selecionar uma
+        if (data.status === 'pending_page_selection' && data.pages && data.pages.length > 0) {
+          setPages(data.pages);
+          setShowPageSelection(true);
+          setSuccess('Login realizado! Selecione a página com sua conta do Instagram.');
+        }
+        
+        // Se não tem páginas
+        if (data.status === 'no_pages') {
+          setError('Nenhuma página do Facebook com conta do Instagram Business foi encontrada. Certifique-se de que você tem uma página do Facebook com uma conta do Instagram Business vinculada.');
+        }
+        
         // Se há uma página selecionada, buscar dados dela
-        if (data.selected_page_id && data.pages) {
+        if (isFullyConnected && data.selected_page_id && data.pages) {
           const page = data.pages.find((p: FacebookPage) => p.id === data.selected_page_id);
           if (page) {
             setSelectedPage(page);
+            // Carregar mensagens e comentários apenas se totalmente conectado
+            loadMessagesAndComments();
           }
         }
-        
-        // Carregar mensagens e comentários
-        loadMessagesAndComments();
       } else {
         setIsConnected(false);
         setConnection(null);
@@ -192,49 +235,45 @@ const InstagramDirect: React.FC<InstagramDirectProps> = ({ setActiveSection }) =
 
       const result = await response.json();
       
-      if (!result.success) {
-        throw new Error(result.error || 'Falha na conexão com Facebook');
-      }
+      console.log('📊 Resultado da Edge Function:', result);
 
-      // Se retornou páginas para seleção
-      if (result.pages && result.pages.length > 0) {
+      // Se a Edge Function retornou sucesso
+      if (result.success) {
+        console.log('✅ Facebook conectado via Edge Function:', result.connection);
+        setConnection(result.connection);
+        setIsConnected(true);
+        
+        // Se há uma página selecionada automaticamente
+        if (result.selected_page && result.connection.status === 'connected') {
+          setSelectedPage(result.selected_page);
+          setSuccess('✅ Facebook conectado com sucesso!');
+          loadMessagesAndComments();
+        }
+        
+        // Limpar state do localStorage
+        localStorage.removeItem('facebook_oauth_state');
+        return;
+      }
+      
+      // Se precisa selecionar página
+      if (result.needs_page_selection && result.pages && result.pages.length > 0) {
         setPages(result.pages);
         setShowPageSelection(true);
         setSuccess('Login realizado! Selecione a página com sua conta do Instagram.');
         
-        // Salvar conexão parcial
-        setConnection({
-          id: result.connection_id || 'temp',
-          user_id: user?.id || '',
-          facebook_user_id: result.facebook_user_id,
-          facebook_access_token: 'stored_securely',
-          pages: result.pages,
-          selected_page_id: null,
-          selected_instagram_account_id: null,
-          instagram_username: null,
-          status: 'pending_page_selection',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        });
+        // Recarregar status da conexão para obter dados atualizados do banco
+        await checkConnectionStatus();
         
         return;
       }
 
-      // Se já tem página selecionada
-      if (result.connection) {
-        console.log('✅ Facebook conectado via Edge Function:', result.connection);
-        setIsConnected(true);
-        setConnection(result.connection);
-        
-        // Limpar state do localStorage
-        localStorage.removeItem('facebook_oauth_state');
-
-        setSuccess('✅ Facebook conectado com sucesso!');
-        console.log('✅ Conexão Facebook estabelecida com sucesso');
-        
-        // Carregar mensagens e comentários
-        loadMessagesAndComments();
+      // Se houve erro
+      if (result.error) {
+        throw new Error(result.error);
       }
+      
+      // Fallback: recarregar status da conexão
+      await checkConnectionStatus();
     } catch (err) {
       console.error('❌ Erro no callback do Facebook:', err);
       setError(err instanceof Error ? err.message : 'Erro ao processar conexão com Facebook');
@@ -259,6 +298,98 @@ const InstagramDirect: React.FC<InstagramDirectProps> = ({ setActiveSection }) =
     
     // Redirecionar para o Facebook
     window.location.href = facebookAuthUrl;
+  };
+
+  const handleLoadPages = async () => {
+    if (!connection?.facebook_access_token) {
+      setError('Token de acesso do Facebook não encontrado');
+      return;
+    }
+
+    setLoadingPages(true);
+    setError(null);
+    
+    try {
+      console.log('📄 Carregando páginas do Facebook...');
+      
+      // Obter token de autenticação do usuário
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError || !session?.access_token) {
+        throw new Error('Usuário não autenticado');
+      }
+
+      // Chamar Edge Function para buscar páginas
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/facebook-pages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          user_id: user?.id,
+          organization_id: profile?.organization_id
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Falha na comunicação com a Edge Function');
+      }
+
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Falha ao buscar páginas do Facebook');
+      }
+
+      console.log('📄 Páginas encontradas:', result.pages?.length || 0);
+      console.log('📄 Dados das páginas:', result.pages);
+
+      if (!result.pages || result.pages.length === 0) {
+        throw new Error('Nenhuma página do Facebook encontrada. Certifique-se de que você tem páginas gerenciadas no Facebook e que concedeu as permissões necessárias.');
+      }
+
+      const pagesWithInstagram = result.pages;
+
+      if (pagesWithInstagram.length === 0) {
+        throw new Error('Nenhuma página com Instagram Business encontrada. Vincule uma conta do Instagram Business às suas páginas do Facebook no Meta Business Manager.');
+      }
+
+      // Atualizar estado local
+      setConnection(prev => prev ? {
+        ...prev,
+        pages: pagesWithInstagram,
+        status: pagesWithInstagram.length === 1 ? 'connected' : 'pending_page_selection',
+        updated_at: new Date().toISOString()
+      } : null);
+
+      setPages(pagesWithInstagram);
+      
+      if (pagesWithInstagram.length === 1) {
+        // Auto-selecionar se há apenas uma página
+        await handlePageSelection(pagesWithInstagram[0]);
+      } else {
+        // Mostrar modal de seleção se há múltiplas páginas
+        setShowPageSelection(true);
+        setSuccess(`${pagesWithInstagram.length} páginas com Instagram encontradas. Selecione uma.`);
+      }
+
+    } catch (err) {
+      console.error('❌ Erro ao carregar páginas:', err);
+      setError(err instanceof Error ? err.message : 'Erro ao carregar páginas');
+    } finally {
+      setLoadingPages(false);
+    }
+  };
+
+  const handleChangeSelectedPage = () => {
+    if (connection?.pages && connection.pages.length > 0) {
+      setPages(connection.pages);
+      setShowPageSelection(true);
+    } else {
+      setError('Nenhuma página encontrada na conexão. Tente recarregar as páginas.');
+    }
   };
 
   const handlePageSelection = async (page: FacebookPage) => {
@@ -304,6 +435,7 @@ const InstagramDirect: React.FC<InstagramDirectProps> = ({ setActiveSection }) =
       setSelectedPage(page);
       
       setSuccess(`✅ Página "${page.name}" conectada com sucesso!`);
+      setTimeout(() => setSuccess(null), 3000);
       
       // Carregar mensagens e comentários
       loadMessagesAndComments();
@@ -319,7 +451,6 @@ const InstagramDirect: React.FC<InstagramDirectProps> = ({ setActiveSection }) =
     if (!connection?.selected_instagram_account_id) return;
 
     setLoadingMessages(true);
-    setLoadingComments(true);
 
     try {
       // Buscar mensagens do Instagram do banco
@@ -336,25 +467,15 @@ const InstagramDirect: React.FC<InstagramDirectProps> = ({ setActiveSection }) =
         setMessages(messagesData || []);
       }
 
-      // Buscar comentários do Instagram do banco
-      const { data: commentsData, error: commentsError } = await supabase
-        .from('instagram_comments')
-        .select('*')
-        .eq('instagram_account_id', connection.selected_instagram_account_id)
-        .order('timestamp', { ascending: false })
-        .limit(20);
-
-      if (commentsError) {
-        console.error('❌ Erro ao buscar comentários:', commentsError);
-      } else {
-        setComments(commentsData || []);
+      // Não buscar comentários do banco - usar apenas o mock
+      if (comments.length === 0) {
+        initializeMockComment();
       }
 
     } catch (err) {
       console.error('❌ Erro ao carregar dados:', err);
     } finally {
       setLoadingMessages(false);
-      setLoadingComments(false);
     }
   };
 
@@ -398,8 +519,8 @@ const InstagramDirect: React.FC<InstagramDirectProps> = ({ setActiveSection }) =
   };
 
   const handleSendTestMessage = async () => {
-    if (!testRecipientId.trim() || !testMessage.trim()) {
-      setError('Por favor, preencha o ID do destinatário e a mensagem');
+    if (!testMessage.trim()) {
+      setError('Por favor, preencha a mensagem');
       return;
     }
 
@@ -413,58 +534,86 @@ const InstagramDirect: React.FC<InstagramDirectProps> = ({ setActiveSection }) =
     setSuccess(null);
 
     try {
-      console.log(`📤 Enviando mensagem de teste para ${testRecipientId}...`);
+      console.log(`📤 Simulando envio de mensagem de teste...`);
 
-      // Obter token de autenticação do usuário
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      
-      if (sessionError || !session?.access_token) {
-        throw new Error('Usuário não autenticado');
-      }
+      // Simular delay de rede
+      await new Promise(resolve => setTimeout(resolve, 800));
 
-      // Chamar Edge Function para enviar mensagem
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/instagram-send-message`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({
-          recipient_id: testRecipientId.trim(),
-          message_text: testMessage.trim(),
-          instagram_account_id: connection.selected_instagram_account_id,
-          page_access_token: selectedPage?.access_token
-        }),
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.error || 'Falha ao enviar mensagem');
-      }
-
-      console.log('✅ Mensagem enviada com sucesso:', result);
-      setSuccess(`✅ Mensagem enviada com sucesso para ${testRecipientId}!`);
-      setTestRecipientId('');
-      
-      // Adicionar mensagem enviada à lista local
+      // Criar nova mensagem simulada
       const newMessage: InstagramMessage = {
-        id: `sent-${Date.now()}`,
-        sender_id: testRecipientId,
-        message: testMessage,
+        id: `simulated-${Date.now()}`,
+        sender_id: testRecipientId.trim() || 'usuario_teste',
+        message: testMessage.trim(),
         timestamp: new Date().toISOString(),
         direction: 'sent'
       };
+      
+      // Adicionar mensagem ao estado local
       setMessages(prev => [newMessage, ...prev]);
+      
+      console.log('✅ Mensagem simulada adicionada com sucesso');
+      setSuccess(`✅ Mensagem de teste adicionada ao Gerenciamento de Mensagens!`);
+      setTestRecipientId('');
+      setTestMessage('Olá! Esta é uma mensagem de teste do Atendos IA 🤖');
       
       // Limpar mensagem de sucesso após 5 segundos
       setTimeout(() => setSuccess(null), 5000);
 
     } catch (err) {
-      console.error('❌ Erro ao enviar mensagem:', err);
-      setError(err instanceof Error ? err.message : 'Erro desconhecido ao enviar mensagem');
+      console.error('❌ Erro ao simular mensagem:', err);
+      setError(err instanceof Error ? err.message : 'Erro desconhecido ao simular mensagem');
     } finally {
       setSendingMessage(false);
+    }
+  };
+
+  const handleReplyToComment = async (commentId: string) => {
+    const replyText = replyInput[commentId];
+    
+    if (!replyText?.trim()) {
+      setError('Digite uma resposta antes de enviar');
+      return;
+    }
+
+    setSendingReply(prev => ({ ...prev, [commentId]: true }));
+    setError(null);
+    setSuccess(null);
+
+    try {
+      console.log(`💬 Simulando resposta ao comentário ${commentId}...`);
+
+      // Simular delay de rede
+      await new Promise(resolve => setTimeout(resolve, 600));
+
+      // Criar nova resposta simulada
+      const newReply: InstagramComment = {
+        id: `reply-${Date.now()}`,
+        post_id: 'mock-post-123',
+        user_id: 'your-business-account',
+        username: connection?.instagram_username || 'sua_empresa',
+        text: replyText.trim(),
+        timestamp: new Date().toISOString(),
+        is_reply: true,
+        parent_comment_id: commentId
+      };
+
+      // Adicionar resposta ao estado local
+      setComments(prev => [...prev, newReply]);
+      
+      // Limpar campo de resposta
+      setReplyInput(prev => ({ ...prev, [commentId]: '' }));
+      
+      console.log('✅ Resposta simulada adicionada com sucesso');
+      setSuccess('✅ Resposta adicionada ao comentário!');
+      
+      // Limpar mensagem de sucesso após 3 segundos
+      setTimeout(() => setSuccess(null), 3000);
+
+    } catch (err) {
+      console.error('❌ Erro ao simular resposta:', err);
+      setError(err instanceof Error ? err.message : 'Erro desconhecido ao simular resposta');
+    } finally {
+      setSendingReply(prev => ({ ...prev, [commentId]: false }));
     }
   };
 
@@ -701,6 +850,23 @@ const InstagramDirect: React.FC<InstagramDirectProps> = ({ setActiveSection }) =
             <Facebook className="w-5 h-5" />
             <span>Login com Facebook</span>
           </button>
+
+          {/* Links para Políticas */}
+          <div className="flex justify-center space-x-4 mb-6">
+            <button
+              onClick={() => window.open('/politicadeprivacidade', '_blank')}
+              className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 text-sm underline"
+            >
+              Política de Privacidade
+            </button>
+            <span className="text-gray-400">•</span>
+            <button
+              onClick={() => window.open('/termosdeservico', '_blank')}
+              className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 text-sm underline"
+            >
+              Termos de Serviço
+            </button>
+          </div>
         </div>
       ) : (
         <div className="space-y-6">
@@ -708,18 +874,43 @@ const InstagramDirect: React.FC<InstagramDirectProps> = ({ setActiveSection }) =
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Conexão Ativa</h3>
-              <button
-                onClick={handleDisconnect}
-                disabled={checkingConnection}
-                className="flex items-center space-x-2 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {checkingConnection ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <AlertCircle className="w-4 h-4" />
+              <div className="flex space-x-3">
+                <button
+                  onClick={handleLoadPages}
+                  disabled={loadingPages || !connection?.facebook_access_token}
+                  className="flex items-center space-x-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {loadingPages ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="w-4 h-4" />
+                  )}
+                  <span>Carregar Páginas</span>
+                </button>
+                
+                {connection?.selected_page_id && (
+                  <button
+                    onClick={handleChangeSelectedPage}
+                    className="flex items-center space-x-2 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                  >
+                    <Users className="w-4 h-4" />
+                    <span>Trocar Página</span>
+                  </button>
                 )}
-                <span>Desconectar</span>
-              </button>
+                
+                <button
+                  onClick={handleDisconnect}
+                  disabled={checkingConnection}
+                  className="flex items-center space-x-2 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {checkingConnection ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4" />
+                  )}
+                  <span>Desconectar</span>
+                </button>
+              </div>
             </div>
 
             <div className="space-y-4">
@@ -770,6 +961,39 @@ const InstagramDirect: React.FC<InstagramDirectProps> = ({ setActiveSection }) =
                   </div>
                 </div>
               )}
+              
+              {/* Page Management Section */}
+              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="font-medium text-blue-800 dark:text-blue-300">Gerenciamento de Páginas</h4>
+                    <p className="text-sm text-blue-700 dark:text-blue-400 mt-1">
+                      {connection?.pages && connection.pages.length > 0 
+                        ? `${connection.pages.length} página(s) disponível(is)`
+                        : 'Nenhuma página carregada'
+                      } - <span className="text-blue-600 dark:text-blue-400">🧪 Modo de teste - mensagens serão simuladas</span>
+                    </p>
+                  </div>
+                  <div className="flex space-x-2">
+                    <button
+                      onClick={handleLoadPages}
+                      disabled={loadingPages}
+                      className="px-3 py-1 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {loadingPages ? 'Carregando...' : 'Recarregar Páginas'}
+                    </button>
+                    
+                    {connection?.pages && connection.pages.length > 1 && (
+                      <button
+                        onClick={handleChangeSelectedPage}
+                        className="px-3 py-1 border border-blue-600 text-blue-600 text-sm rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors"
+                      >
+                        Selecionar Página
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -836,47 +1060,92 @@ const InstagramDirect: React.FC<InstagramDirectProps> = ({ setActiveSection }) =
                 <Hash className="w-5 h-5 text-blue-600" />
                 <span>Gerenciamento de Comentários</span>
               </h3>
-              <button
-                onClick={loadMessagesAndComments}
-                disabled={loadingComments}
-                className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-              >
-                <RefreshCw className={`w-4 h-4 ${loadingComments ? 'animate-spin' : ''}`} />
-              </button>
+              <div className="text-sm text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 px-3 py-1 rounded-full">
+                🧪 Modo de simulação
+              </div>
             </div>
 
-            {loadingComments ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
-                <span className="ml-2 text-gray-600 dark:text-gray-400">Carregando comentários...</span>
-              </div>
-            ) : comments.length > 0 ? (
+            {comments.length > 0 ? (
               <div className="space-y-4">
-                {comments.map((comment) => (
-                  <div key={comment.id} className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
+                {comments.map((comment) => {
+                  const isReply = comment.is_reply === true;
+                  const isLoadingReply = sendingReply[comment.id] || false;
+                  
+                  return (
+                  <div 
+                    key={comment.id} 
+                    className={`bg-gray-50 dark:bg-gray-700 rounded-lg p-4 ${
+                      isReply ? 'ml-8 border-l-4 border-blue-300 dark:border-blue-600' : ''
+                    }`}
+                  >
                     <div className="flex items-start space-x-3">
-                      <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center">
-                        <User className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                        isReply 
+                          ? 'bg-green-100 dark:bg-green-900/30' 
+                          : 'bg-blue-100 dark:bg-blue-900/30'
+                      }`}>
+                        <User className={`w-4 h-4 ${
+                          isReply 
+                            ? 'text-green-600 dark:text-green-400' 
+                            : 'text-blue-600 dark:text-blue-400'
+                        }`} />
                       </div>
                       <div className="flex-1">
                         <div className="flex items-center space-x-2 mb-1">
-                          <span className="font-medium text-gray-900 dark:text-white">{comment.username}</span>
+                          <span className={`font-medium ${
+                            isReply 
+                              ? 'text-green-800 dark:text-green-300' 
+                              : 'text-gray-900 dark:text-white'
+                          }`}>
+                            {isReply ? '↳ ' : ''}@{comment.username}
+                          </span>
                           <span className="text-xs text-gray-500 dark:text-gray-400">{formatTimeAgo(comment.timestamp)}</span>
+                          {isReply && (
+                            <span className="text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-2 py-0.5 rounded-full">
+                              Resposta
+                            </span>
+                          )}
                         </div>
                         <p className="text-gray-700 dark:text-gray-300 text-sm">{comment.text}</p>
-                        <button className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 mt-2">
-                          Responder
-                        </button>
+                        
+                        {/* Campo de resposta apenas para comentários originais */}
+                        {!isReply && (
+                          <div className="mt-3 space-y-2">
+                            <textarea
+                              rows={2}
+                              value={replyInput[comment.id] || ''}
+                              onChange={(e) => setReplyInput(prev => ({ ...prev, [comment.id]: e.target.value }))}
+                              placeholder="Digite sua resposta..."
+                              disabled={isLoadingReply}
+                              className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 disabled:opacity-50"
+                            />
+                            <div className="flex justify-end">
+                              <button
+                                onClick={() => handleReplyToComment(comment.id)}
+                                disabled={isLoadingReply || !replyInput[comment.id]?.trim()}
+                                className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                {isLoadingReply ? (
+                                  <Loader2 className="w-3 h-3 animate-spin" />
+                                ) : (
+                                  <Send className="w-3 h-3" />
+                                )}
+                                <span>{isLoadingReply ? 'Respondendo...' : 'Responder'}</span>
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <div className="text-center py-8">
                 <Hash className="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
                 <p className="text-gray-500 dark:text-gray-400 text-sm">
-                  Nenhum comentário ainda
+                  Carregando comentário de exemplo...
                 </p>
               </div>
             )}
@@ -900,7 +1169,7 @@ const InstagramDirect: React.FC<InstagramDirectProps> = ({ setActiveSection }) =
                     className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 disabled:opacity-50"
                   />
                   <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                    O ID numérico do usuário do Instagram (não o @username)
+                    Deixe em branco para usar "usuario_teste" como padrão
                   </p>
                 </div>
                 <div>
@@ -913,7 +1182,6 @@ const InstagramDirect: React.FC<InstagramDirectProps> = ({ setActiveSection }) =
                     onChange={(e) => setTestMessage(e.target.value)}
                     disabled={!isConnected || sendingMessage}
                     className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 disabled:opacity-50"
-                    placeholder="Digite sua mensagem de teste..."
                   />
                 </div>
               </div>
@@ -931,7 +1199,7 @@ const InstagramDirect: React.FC<InstagramDirectProps> = ({ setActiveSection }) =
                 
                 <button
                   onClick={handleSendTestMessage}
-                  disabled={sendingMessage || !testRecipientId.trim() || !testMessage.trim() || !isConnected || !connection?.selected_instagram_account_id}
+                  disabled={sendingMessage || !testMessage.trim() || !isConnected || !connection?.selected_instagram_account_id}
                   className="flex items-center space-x-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {sendingMessage ? (
@@ -939,7 +1207,7 @@ const InstagramDirect: React.FC<InstagramDirectProps> = ({ setActiveSection }) =
                   ) : (
                     <Send className="w-5 h-5" />
                   )}
-                  <span>{sendingMessage ? 'Enviando...' : 'Enviar Teste'}</span>
+                  <span>{sendingMessage ? 'Simulando...' : 'Simular Envio'}</span>
                 </button>
               </div>
             </div>
@@ -950,6 +1218,11 @@ const InstagramDirect: React.FC<InstagramDirectProps> = ({ setActiveSection }) =
       {/* Information Card */}
       <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-6">
         <h3 className="text-lg font-semibold text-blue-900 dark:text-blue-100 mb-4">📱 Fluxo de Integração Facebook → Instagram</h3>
+        <div className="bg-blue-100 dark:bg-blue-800/30 rounded-lg p-3 mb-4">
+          <p className="text-sm text-blue-800 dark:text-blue-200">
+            <strong>🧪 Modo de Desenvolvimento:</strong> As mensagens e respostas são simuladas localmente para facilitar testes e desenvolvimento.
+          </p>
+        </div>
         <div className="space-y-3">
           <div className="flex items-center space-x-3">
             <div className="w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center text-sm font-bold">1</div>
@@ -968,8 +1241,8 @@ const InstagramDirect: React.FC<InstagramDirectProps> = ({ setActiveSection }) =
           <div className="flex items-center space-x-3">
             <div className="w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center text-sm font-bold">3</div>
             <div>
-              <p className="font-medium text-blue-900 dark:text-blue-100">Gerencie Instagram</p>
-              <p className="text-sm text-blue-700 dark:text-blue-300">Acesse mensagens e comentários do Instagram Business</p>
+              <p className="font-medium text-blue-900 dark:text-blue-100">Teste Funcionalidades</p>
+              <p className="text-sm text-blue-700 dark:text-blue-300">Simule envio de mensagens e respostas a comentários</p>
             </div>
           </div>
         </div>

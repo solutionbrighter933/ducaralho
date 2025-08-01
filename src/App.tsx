@@ -16,6 +16,8 @@ import PricingPage from './pages/PricingPage';
 import SuccessPage from './pages/SuccessPage';
 import GoogleCalendarCallback from './pages/GoogleCalendarCallback';
 import SubscriptionStatus from './components/SubscriptionStatus';
+import PrivacyPolicy from './components/PrivacyPolicy';
+import TermsOfService from './components/TermsOfService';
 
 type ActiveSection = 'dashboard' | 'conversations' | 'ai-training' | 'whatsapp' | 'instagram' | 'calendar' | 'settings' | 'profile' | 'support' | 'debug' | 'subscription';
 type Theme = 'light' | 'dark' | 'auto';
@@ -148,6 +150,42 @@ function App() {
       <Route path="/pricing" element={<PricingPage />} />
       <Route path="/success" element={<SuccessPage />} />
       <Route path="/auth/callback/google-calendar" element={<GoogleCalendarCallback />} />
+      <Route path="/politicadeprivacidade" element={
+        <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-6">
+          <div className="max-w-4xl mx-auto">
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-8">
+              <div className="flex items-center justify-between mb-6">
+                <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Política de Privacidade</h1>
+                <button
+                  onClick={() => window.history.back()}
+                  className="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors"
+                >
+                  Voltar
+                </button>
+              </div>
+              <PrivacyPolicy />
+            </div>
+          </div>
+        </div>
+      } />
+      <Route path="/termosdeservico" element={
+        <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-6">
+          <div className="max-w-4xl mx-auto">
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-8">
+              <div className="flex items-center justify-between mb-6">
+                <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Termos de Serviço</h1>
+                <button
+                  onClick={() => window.history.back()}
+                  className="px-4 py-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors"
+                >
+                  Voltar
+                </button>
+              </div>
+              <TermsOfService />
+            </div>
+          </div>
+        </div>
+      } />
       <Route path="/*" element={
         <div className="flex h-screen bg-gray-50 dark:bg-gray-900 transition-colors">
           <Sidebar activeSection={activeSection} setActiveSection={setActiveSection} />
