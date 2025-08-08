@@ -288,7 +288,7 @@ const InstagramDirect: React.FC<InstagramDirectProps> = ({ setActiveSection }) =
       `client_id=${import.meta.env.VITE_FACEBOOK_APP_ID}&` +
       `redirect_uri=${encodeURIComponent('https://atendos.com.br/instagram/callback')}&` +
       `state=atendos_facebook_oauth_2024&` +
-      `scope=${encodeURIComponent('pages_show_list,pages_read_engagement,pages_manage_metadata,instagram_basic,instagram_manage_messages,instagram_manage_comments,instagram_content_publish')}&` +
+      `scope=${encodeURIComponent('instagram_business_basic,instagram_business_manage_messages,pages_show_list,pages_manage_metadata,instagram_manage_comments,instagram_manage_messages,pages_read_engagement,instagram_basic')}&` +
       `response_type=code`;
     
     // Salvar o state no localStorage para verificação posterior

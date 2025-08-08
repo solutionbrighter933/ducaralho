@@ -348,7 +348,7 @@ export const useConversations = () => {
                 .from('messages')
                 .select('id')
                 .eq('conversation_id', conversation.id)
-                .eq('metadata->whatsapp_message_id', msg.id)
+                .eq('metadata->>whatsapp_message_id', msg.id)
                 .maybeSingle();
 
               if (!existingMessage) {

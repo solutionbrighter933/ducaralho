@@ -18,8 +18,9 @@ import GoogleCalendarCallback from './pages/GoogleCalendarCallback';
 import SubscriptionStatus from './components/SubscriptionStatus';
 import PrivacyPolicy from './components/PrivacyPolicy';
 import TermsOfService from './components/TermsOfService';
+import MyProducts from './components/MyProducts';
 
-type ActiveSection = 'dashboard' | 'conversations' | 'ai-training' | 'whatsapp' | 'instagram' | 'calendar' | 'settings' | 'profile' | 'support' | 'debug' | 'subscription';
+type ActiveSection = 'dashboard' | 'conversations' | 'ai-training' | 'whatsapp' | 'instagram' | 'calendar' | 'my-products' | 'settings' | 'profile' | 'support' | 'debug' | 'subscription';
 type Theme = 'light' | 'dark' | 'auto';
 
 interface AppNotification {
@@ -52,6 +53,27 @@ function App() {
       setAppNotifications(prev => prev.filter(n => n.id !== newNotification.id));
     }, 30000);
   };
+
+  // Adicionar notificação sobre GPT-5 ao carregar o app
+  useEffect(() => {
+    // Verificar se a notificação já foi mostrada hoje
+    const today = new Date().toDateString();
+    const lastShown = localStorage.getItem('gpt5_notification_shown');
+    
+    if (lastShown !== today) {
+      // Mostrar notificação após 2 segundos
+      setTimeout(() => {
+        addAppNotification({
+          title: 'Nova Versão Disponível!',
+          message: 'Versão do GPT 5 já disponível!',
+          type: 'info'
+        });
+        
+        // Marcar como mostrada hoje
+        localStorage.setItem('gpt5_notification_shown', today);
+      }, 2000);
+    }
+  }, []);
 
   // Função para marcar notificação como lida
   const markNotificationAsRead = (notificationId: string) => {
@@ -130,6 +152,8 @@ function App() {
         return <InstagramDirect setActiveSection={setActiveSection} />;
       case 'calendar':
         return <GoogleCalendar addAppNotification={addAppNotification} />;
+      case 'my-products':
+        return <MyProducts />;
       case 'settings':
         return <Settings theme={theme} setTheme={setTheme} activeTab={settingsTab} setActiveTab={setSettingsTab} />;
       case 'profile':

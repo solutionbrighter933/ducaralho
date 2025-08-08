@@ -194,6 +194,37 @@ const Settings: React.FC<SettingsProps> = ({ theme = 'auto', setTheme, activeTab
     { id: 'terms-of-service', label: 'Termos de Serviço', icon: Globe },
   ];
 
+  const gpt5Models = [
+    {
+      id: 'gpt-5',
+      name: 'GPT-5',
+      provider: 'OpenAI',
+      description: 'O modelo mais avançado da OpenAI com capacidades revolucionárias. Raciocínio superior, compreensão contextual profunda e habilidades multimodais de última geração.',
+      strengths: ['Raciocínio avançado', 'Compreensão contextual superior', 'Multimodal avançado', 'Criatividade aprimorada'],
+      bestFor: 'Casos complexos que exigem máxima inteligência',
+      speed: 'Moderado',
+      cost: 'Muito Alto',
+      accuracy: 99,
+      recommended: true,
+      icon: '🚀',
+      color: 'from-purple-600 to-pink-600'
+    },
+    {
+      id: 'gpt-5-mini',
+      name: 'GPT-5 Mini',
+      provider: 'OpenAI',
+      description: 'Versão otimizada do GPT-5 para velocidade máxima. Mantém alta qualidade com resposta ultra-rápida, ideal para atendimento em tempo real.',
+      strengths: ['Velocidade extrema', 'Eficiência energética', 'Custo otimizado', 'Baixa latência'],
+      bestFor: 'Atendimento em tempo real e alto volume',
+      speed: 'Ultra Rápido',
+      cost: 'Médio',
+      accuracy: 96,
+      recommended: false,
+      icon: '⚡',
+      color: 'from-cyan-500 to-blue-600'
+    }
+  ];
+
   const aiModels = [
     {
       id: 'gpt-4o',
@@ -252,6 +283,9 @@ const Settings: React.FC<SettingsProps> = ({ theme = 'auto', setTheme, activeTab
       color: 'from-orange-500 to-red-600'
     }
   ];
+
+  // Combinar todos os modelos
+  const allModels = [...gpt5Models, ...aiModels];
 
   const themeOptions = [
     {
@@ -350,7 +384,7 @@ const Settings: React.FC<SettingsProps> = ({ theme = 'auto', setTheme, activeTab
         </p>
         
         <div className="space-y-4">
-          {aiModels.map((model) => (
+          {allModels.map((model) => (
             <div
               key={model.id}
               className={`relative border-2 rounded-xl p-6 cursor-pointer transition-all duration-200 ${
