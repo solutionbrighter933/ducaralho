@@ -9,6 +9,7 @@ interface Product {
   descricao: string | null;
   preco: number;
   estoque: number;
+  foto_url: string | null;
   organization_id: string;
   user_id: string;
 }
@@ -41,8 +42,10 @@ const MyProducts: React.FC = () => {
     nome: '',
     descricao: '',
     preco: '',
-    estoque: ''
+    estoque: '',
+    foto_url: ''
   });
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
   useEffect(() => {
     if (user?.id && profile?.organization_id) {
@@ -115,6 +118,7 @@ const MyProducts: React.FC = () => {
       nome: '',
       descricao: '',
       preco: '',
+      estoque: '',
       estoque: ''
     });
     setIsEditing(false);
@@ -147,13 +151,14 @@ const MyProducts: React.FC = () => {
     }
   };
 
+
   const openModal = (product?: Product) => {
     if (product) {
       setForm({
         nome: product.nome,
         descricao: product.descricao || '',
         preco: product.preco.toString(),
-        estoque: product.estoque.toString()
+        estoque: product.estoque.toString(),
       });
       setCurrentProduct(product);
       setIsEditing(true);
@@ -289,7 +294,7 @@ const MyProducts: React.FC = () => {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Meus Produtos</h1>
+        <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Smart Delivery</h1>
         <div className="flex space-x-3">
           {activeTab === 'products' && (
             <button
@@ -427,17 +432,22 @@ const MyProducts: React.FC = () => {
                   {filteredProducts.map((product) => (
                     <tr key={product.id} className="hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
                       <td className="px-6 py-4">
-                        <div>
-                          <div className="text-sm font-medium text-gray-900 dark:text-white">
-                            {product.nome}
+                        <div className="flex items-center space-x-3">
+                          <div className="w-12 h-12 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg flex items-center justify-center">
+                            <Package className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
                           </div>
-                          {product.descricao && (
-                            <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                              {product.descricao.length > 100 
-                                ? `${product.descricao.substring(0, 100)}...` 
-                                : product.descricao}
+                          <div>
+                            <div className="text-sm font-medium text-gray-900 dark:text-white">
+                              {product.nome}
                             </div>
-                          )}
+                            {product.descricao && (
+                              <div className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                                {product.descricao.length > 100 
+                                  ? `${product.descricao.substring(0, 100)}...` 
+                                  : product.descricao}
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </td>
                       <td className="px-6 py-4 text-sm text-gray-900 dark:text-white">
@@ -709,6 +719,7 @@ const MyProducts: React.FC = () => {
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-4">
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Nome do Produto *

@@ -63,21 +63,28 @@ export const useAIBlockedConversations = () => {
 
       console.log(`🚫 Bloqueando IA para conversa: ${conversaId}`);
 
-      const { error: insertError } = await supabase
+      const { error: upsertError } = await supabase
         .from('ai_blocked_conversations')
-        .insert({
+        .upsert({
           conversa_id: conversaId,
           user_id: user.id,
           organization_id: profile.organization_id
+        }, {
+          onConflict: 'user_id,conversa_id'
         });
 
-      if (insertError) {
-        console.error('❌ Erro ao bloquear conversa:', insertError);
-        throw insertError;
+      if (upsertError) {
+        console.error('❌ Erro ao bloquear conversa:', upsertError);
+        throw upsertError;
       }
 
       // Atualizar estado local
-      setBlockedConversations(prev => [...prev, conversaId]);
+      setBlockedConversations(prev => {
+        if (!prev.includes(conversaId)) {
+          return [...prev, conversaId];
+        }
+        return prev;
+      });
       console.log('✅ Conversa bloqueada com sucesso');
       return true;
     } catch (err) {

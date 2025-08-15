@@ -19,6 +19,7 @@ import SubscriptionStatus from './components/SubscriptionStatus';
 import PrivacyPolicy from './components/PrivacyPolicy';
 import TermsOfService from './components/TermsOfService';
 import MyProducts from './components/MyProducts';
+import Contacts from './components/Contacts';
 
 type ActiveSection = 'dashboard' | 'conversations' | 'ai-training' | 'whatsapp' | 'instagram' | 'calendar' | 'my-products' | 'settings' | 'profile' | 'support' | 'debug' | 'subscription';
 type Theme = 'light' | 'dark' | 'auto';
@@ -154,6 +155,8 @@ function App() {
         return <GoogleCalendar addAppNotification={addAppNotification} />;
       case 'my-products':
         return <MyProducts />;
+      case 'contacts':
+        return <Contacts />;
       case 'settings':
         return <Settings theme={theme} setTheme={setTheme} activeTab={settingsTab} setActiveTab={setSettingsTab} />;
       case 'profile':
