@@ -227,6 +227,34 @@ const Settings: React.FC<SettingsProps> = ({ theme = 'auto', setTheme, activeTab
 
   const aiModels = [
     {
+      id: 'grok-4',
+      name: 'Grok 4',
+      provider: 'xAI',
+      description: 'Modelo revolucionário da xAI com humor e personalidade únicos. Excelente para conversas envolventes e respostas criativas com um toque de irreverência.',
+      strengths: ['Humor inteligente', 'Personalidade marcante', 'Respostas criativas', 'Contexto atual'],
+      bestFor: 'Atendimento descontraído e engajamento criativo',
+      speed: 'Muito Rápido',
+      cost: 'Alto',
+      accuracy: 94,
+      recommended: false,
+      icon: '🚀',
+      color: 'from-red-500 to-orange-600'
+    },
+    {
+      id: 'gemini-2-5-pro',
+      name: 'Gemini 2.5 Pro',
+      provider: 'Google',
+      description: 'Versão mais avançada do Gemini com capacidades multimodais superiores e integração nativa com serviços Google. Ideal para análise complexa e processamento de múltiplos tipos de mídia.',
+      strengths: ['Multimodal avançado', 'Integração Google nativa', 'Análise de documentos', 'Processamento de imagens'],
+      bestFor: 'Empresas Google Workspace e análise multimodal',
+      speed: 'Rápido',
+      cost: 'Médio',
+      accuracy: 97,
+      recommended: false,
+      icon: '🌟',
+      color: 'from-blue-500 to-purple-600'
+    },
+    {
       id: 'gpt-4o',
       name: 'GPT-4o',
       provider: 'OpenAI',

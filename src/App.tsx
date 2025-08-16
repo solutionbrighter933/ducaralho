@@ -154,7 +154,7 @@ function App() {
       case 'calendar':
         return <GoogleCalendar addAppNotification={addAppNotification} />;
       case 'my-products':
-        return <MyProducts />;
+        return <MyProducts addAppNotification={addAppNotification} />;
       case 'contacts':
         return <Contacts />;
       case 'settings':

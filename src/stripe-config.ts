@@ -17,11 +17,12 @@ export const products: Product[] = [
     description: 'Starter - Plano ideal para começar com automação de atendimento',
     features: [
       'Atendimento automatizado com IA',
+      'Personalização de IA Completa',
       'Integração com WhatsApp',
       'Dashboard completo',
       'Suporte técnico',
       'Treinamento personalizado da IA',
-      'Até 1.000 mensagens/mês'
+      'Até 2.000 mensagens/mês'
     ],
     mode: 'subscription',
     trialDays: 7
@@ -32,11 +33,11 @@ export const products: Product[] = [
     price: 'R$ 1.192,00/mês',
     description: 'Plus - A Máquina de Conversão no Bolso',
     features: [
-      '2.000 mensagens mensais com IA ativa 24h no automático',
+      '3.000 mensagens mensais com IA ativa 24h no automático',
       'Atendimento completo no Instagram Direct + WhatsApp',
       'Respostas adaptativas inteligentes que se moldam ao tom do cliente',
       'Monitoramento de leads em tempo real',
-      'Funil de vendas invisível — o lead nem percebe que foi conduzido pro checkout',
+      'Funil de vendas invisível, o lead nem percebe que foi conduzido pro checkout',
       'Análise de intenção de compra automática'
     ],
     mode: 'subscription',
@@ -49,15 +50,19 @@ export const products: Product[] = [
     price: 'R$ 1.578,00',
     description: 'Dominação Digital com Estilo Brutal',
     features: [
-      '3.000 mensagens mensais com IA customizada',
+      'Mensagens mensais ilimitadas com IA customizada',
       'Atendimento total: WhatsApp + Instagram Direct, sem limites',
       'Integração automática com Google Sheets via IA',
       'Acesso prioritário ao suporte',
-      'Personalização insana da IA — treine ela do seu jeito',
+      'Personalização ilimitada da IA, treine ela do seu jeito',
       'Agente SDR com follow-up automático',
       'Agente de voz que liga, qualifica e marca reunião sozinho',
       'Agente de agendamento via Google Calendar integrado',
-      'Agente vendedor com carrinho de compras embutido (Pix, boleto, crédito)'
+      'Agente vendedor com carrinho de compras embutido (Pix, boleto, crédito)',
+      'Smart Delivery: Gestão completa de pedidos e entregas com IA',
+      'Emissão automática de notas fiscais pós-venda',
+      'Integrações ilimitadas: CRM, Telegram, Apple Calendar, Stripe, Asaas',
+      'Gerador de Leads B2B: Gere centenas de leads em minutos'
     ],
     mode: 'subscription',
     trialDays: 7
