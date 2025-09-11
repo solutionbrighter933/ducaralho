@@ -149,70 +149,110 @@ const Contacts: React.FC = () => {
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // Função para extrair contatos da resposta do N8N
-  const extractContactsFromResponse = (responseText: string) => {
-    const contacts: Array<{id: string; nome: string; numero: string; endereco?: string; source: string}> = [];
+  const extractContactsFromResponse = (responseText: string): Array<{nome: string, numero: string}> => {
+    const contacts: Array<{nome: string, numero: string}> = [];
+    const lines = responseText.split('\n');
     
-    // Regex para encontrar padrões de nome e telefone
-    const patterns = [
-      // Padrão: Nome - Telefone
-      /([A-Za-zÀ-ÿ\s]+)\s*[-–—]\s*(\+?55\s*\(?[1-9]{2}\)?\s*9?\d{4}[-\s]?\d{4})/g,
-      // Padrão: Nome: Telefone
-      /([A-Za-zÀ-ÿ\s]+):\s*(\+?55\s*\(?[1-9]{2}\)?\s*9?\d{4}[-\s]?\d{4})/g,
-      // Padrão: Nome (Telefone)
-      /([A-Za-zÀ-ÿ\s]+)\s*\(\s*(\+?55\s*\(?[1-9]{2}\)?\s*9?\d{4}[-\s]?\d{4})\s*\)/g,
-      // Padrão: Nome | Telefone
-      /([A-Za-zÀ-ÿ\s]+)\s*\|\s*(\+?55\s*\(?[1-9]{2}\)?\s*9?\d{4}[-\s]?\d{4})/g,
-      // Padrão mais flexível: qualquer nome seguido de número
-      /([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s]{2,30})\s+(\+?55\s*\(?[1-9]{2}\)?\s*9?\d{4}[-\s]?\d{4})/g
-    ];
-
-    patterns.forEach(pattern => {
-      let match;
-      while ((match = pattern.exec(responseText)) !== null) {
-        const nome = match[1].trim();
-        const numero = match[2].replace(/\D/g, ''); // Remove formatação
+    console.log('🔍 Analisando resposta para extrair contatos...');
+    console.log('📄 Texto completo:', responseText.substring(0, 500) + '...');
+    
+    for (const line of lines) {
+      const cleanLine = line.trim();
+      if (!cleanLine || cleanLine.length < 10) continue;
+      
+      console.log('📝 Analisando linha:', cleanLine);
+      
+      // PADRÃO 1: Nome - Telefone (formato comum)
+      const pattern1 = /^(.+?)\s*[-–—]\s*(\+?55\s?)?(\(?\d{2}\)?\s?)?\d{4,5}[-\s]?\d{4}/;
+      const match1 = cleanLine.match(pattern1);
+      
+      if (match1) {
+        const nome = match1[1].trim();
+        const numeroCompleto = cleanLine.match(/(\+?55\s?)?(\(?\d{2}\)?\s?)?\d{4,5}[-\s]?\d{4}/)?.[0] || '';
+        const numero = numeroCompleto.replace(/\D/g, '');
         
-        // Validar se o nome não é muito curto e o número tem tamanho correto
-        if (nome.length >= 3 && numero.length >= 10 && numero.length <= 13) {
-          // Verificar se já não foi adicionado
-          const exists = contacts.some(c => c.numero === numero || c.nome.toLowerCase() === nome.toLowerCase());
-          if (!exists) {
-            contacts.push({
-              id: `contact-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-              nome,
-              numero,
-              source: responseText.substring(Math.max(0, match.index - 50), match.index + match[0].length + 50)
-            });
-          }
+        if (nome.length >= 3 && numero.length >= 10) {
+          console.log('✅ PADRÃO 1 - Nome:', nome, 'Número:', numero);
+          contacts.push({ nome, numero });
+          continue;
         }
       }
-    });
-
-    // Se não encontrou contatos com regex, tentar buscar apenas números
-    if (contacts.length === 0) {
-      const phonePattern = /(\+?55\s*\(?[1-9]{2}\)?\s*9?\d{4}[-\s]?\d{4})/g;
-      let phoneMatch;
-      let phoneIndex = 1;
       
-      while ((phoneMatch = phonePattern.exec(responseText)) !== null) {
-        const numero = phoneMatch[1].replace(/\D/g, '');
+      // PADRÃO 2: Telefone: Nome (formato alternativo)
+      const pattern2 = /(\+?55\s?)?(\(?\d{2}\)?\s?)?\d{4,5}[-\s]?\d{4}\s*[-–—:]\s*(.+)/;
+      const match2 = cleanLine.match(pattern2);
+      
+      if (match2) {
+        const numeroCompleto = match2[0].match(/(\+?55\s?)?(\(?\d{2}\)?\s?)?\d{4,5}[-\s]?\d{4}/)?.[0] || '';
+        const numero = numeroCompleto.replace(/\D/g, '');
+        const nome = match2[3].trim();
         
-        if (numero.length >= 10 && numero.length <= 13) {
-          const exists = contacts.some(c => c.numero === numero);
-          if (!exists) {
-            contacts.push({
-              id: `phone-${Date.now()}-${phoneIndex}`,
-              nome: `Contato ${phoneIndex}`,
-              numero,
-              source: responseText.substring(Math.max(0, phoneMatch.index - 30), phoneMatch.index + phoneMatch[0].length + 30)
-            });
-            phoneIndex++;
-          }
+        if (nome.length >= 3 && numero.length >= 10) {
+          console.log('✅ PADRÃO 2 - Nome:', nome, 'Número:', numero);
+          contacts.push({ nome, numero });
+          continue;
+        }
+      }
+      
+      // PADRÃO 3: Nome (número) - formato com parênteses
+      const pattern3 = /^(.+?)\s*\((\+?55\s?)?(\(?\d{2}\)?\s?)?\d{4,5}[-\s]?\d{4}\)/;
+      const match3 = cleanLine.match(pattern3);
+      
+      if (match3) {
+        const nome = match3[1].trim();
+        const numeroCompleto = cleanLine.match(/\((\+?55\s?)?(\(?\d{2}\)?\s?)?\d{4,5}[-\s]?\d{4}\)/)?.[0] || '';
+        const numero = numeroCompleto.replace(/\D/g, '');
+        
+        if (nome.length >= 3 && numero.length >= 10) {
+          console.log('✅ PADRÃO 3 - Nome:', nome, 'Número:', numero);
+          contacts.push({ nome, numero });
+          continue;
+        }
+      }
+      
+      // PADRÃO 4: Formato estruturado (Nome: João, Telefone: 11999999999)
+      const pattern4 = /nome:\s*([^,\n]+).*?(?:telefone|fone|tel):\s*(\+?55\s?)?(\(?\d{2}\)?\s?)?\d{4,5}[-\s]?\d{4}/i;
+      const match4 = cleanLine.match(pattern4);
+      
+      if (match4) {
+        const nome = match4[1].trim();
+        const numeroCompleto = cleanLine.match(/(?:telefone|fone|tel):\s*(\+?55\s?)?(\(?\d{2}\)?\s?)?\d{4,5}[-\s]?\d{4}/i)?.[0] || '';
+        const numero = numeroCompleto.replace(/\D/g, '');
+        
+        if (nome.length >= 3 && numero.length >= 10) {
+          console.log('✅ PADRÃO 4 - Nome:', nome, 'Número:', numero);
+          contacts.push({ nome, numero });
+          continue;
+        }
+      }
+      
+      // PADRÃO 5: Busca por qualquer nome seguido de número na mesma linha
+      const pattern5 = /([A-ZÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇÑ][a-záàâãéèêíïóôõöúçñ]+(?:\s+[A-ZÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇÑ][a-záàâãéèêíïóôõöúçñ]+)*).+?(\+?55\s?)?(\(?\d{2}\)?\s?)?\d{4,5}[-\s]?\d{4}/;
+      const match5 = cleanLine.match(pattern5);
+      
+      if (match5) {
+        const nome = match5[1].trim();
+        const numeroCompleto = cleanLine.match(/(\+?55\s?)?(\(?\d{2}\)?\s?)?\d{4,5}[-\s]?\d{4}/)?.[0] || '';
+        const numero = numeroCompleto.replace(/\D/g, '');
+        
+        if (nome.length >= 3 && numero.length >= 10 && !nome.includes('Telefone') && !nome.includes('Contato')) {
+          console.log('✅ PADRÃO 5 - Nome:', nome, 'Número:', numero);
+          contacts.push({ nome, numero });
+          continue;
         }
       }
     }
-
-    return contacts;
+    
+    console.log('📊 Total de contatos extraídos:', contacts.length);
+    
+    // Remover duplicatas baseado no número
+    const uniqueContacts = contacts.filter((contact, index, self) => 
+      index === self.findIndex(c => c.numero === contact.numero)
+    );
+    
+    console.log('📊 Contatos únicos após remoção de duplicatas:', uniqueContacts.length);
+    
+    return uniqueContacts;
   };
 
   // Função para enviar mensagem individual
@@ -532,7 +572,32 @@ const Contacts: React.FC = () => {
       setError(null);
       setWaitingForLeads(true);
 
-      const response = await fetch('https://n8n.atendos.com.br/webhook/leads-generator', {
+      // Processar mensagem do usuário
+      const { quantidade, segmento, cidade } = processUserMessage(userMessage);
+      
+      console.log('🎯 Parâmetros extraídos:', { quantidade, segmento, cidade });
+
+      // Validar se conseguiu extrair os dados necessários
+      if (!segmento || !cidade) {
+        const assistantMessage: ChatMessage = {
+          id: `msg-${Date.now()}`,
+          content: `Preciso de mais informações para gerar os leads. Por favor, especifique:\n\n${!segmento ? '• O segmento/nicho (ex: restaurantes, clínicas, lojas)\n' : ''}${!cidade ? '• A cidade (ex: São Paulo, Rio de Janeiro)\n' : ''}\nExemplo: "Gere 100 leads de restaurantes em São Paulo"`,
+          sender: 'assistant',
+          timestamp: new Date(),
+        };
+        
+        setChatMessages(prev => [...prev, assistantMessage]);
+        setIsTyping(false);
+        setWaitingForLeads(false);
+        return;
+      }
+
+      console.log('📤 Enviando solicitação para N8N webhook...');
+      
+      // Chamar webhook do N8N para buscar leads
+      const webhookUrl = import.meta.env.VITE_N8N_LEADS_WEBHOOK_URL || 'https://caralho-n8n.cjrr1u.easypanel.host/webhook/leads';
+      
+      const response = await fetch(webhookUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1312,7 +1377,7 @@ Equipe Comercial`);
                       <div className="flex items-center space-x-2 mb-2">
                         <div className="w-3 h-3 bg-purple-500 rounded-full animate-pulse"></div>
                         <span className="text-purple-800 dark:text-purple-300 font-medium">
-                          {waitingForLeads ? 'Buscando leads via N8N...' : 'Processando...'}
+                          {waitingForLeads ? 'Buscando leads...' : 'Processando...'}
                         </span>
                       </div>
                       <div className="text-3xl font-mono text-purple-900 dark:text-purple-100 text-center">
