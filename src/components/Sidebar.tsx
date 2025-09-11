@@ -9,10 +9,12 @@ import {
   Facebook,
   Package,
   Users,
+  Video,
   Settings, 
   User, 
   CreditCard,
-  HelpCircle
+  HelpCircle,
+  UserCheck
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -31,7 +33,9 @@ const Sidebar: React.FC<SidebarProps> = ({ activeSection, setActiveSection }) =>
     { id: 'instagram', label: 'Login com Facebook', icon: Facebook },
     { id: 'calendar', label: 'Google Calendar', icon: Calendar },
     { id: 'my-products', label: 'Smart Delivery', icon: Package },
-    { id: 'contacts', label: 'Contatos', icon: Users },
+    { id: 'meeting', label: 'Meeting', icon: Video },
+    { id: 'contacts', label: 'Leadsgen', icon: Users },
+    { id: 'cadastros', label: 'Cadastros', icon: UserCheck },
     { id: 'subscription', label: 'Assinatura', icon: CreditCard },
     { id: 'settings', label: 'Configurações', icon: Settings },
     { id: 'profile', label: 'Perfil', icon: User },

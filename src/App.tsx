@@ -20,8 +20,10 @@ import PrivacyPolicy from './components/PrivacyPolicy';
 import TermsOfService from './components/TermsOfService';
 import MyProducts from './components/MyProducts';
 import Contacts from './components/Contacts';
+import Meeting from './components/Meeting';
+import Cadastros from './components/Cadastros';
 
-type ActiveSection = 'dashboard' | 'conversations' | 'ai-training' | 'whatsapp' | 'instagram' | 'calendar' | 'my-products' | 'settings' | 'profile' | 'support' | 'debug' | 'subscription';
+type ActiveSection = 'dashboard' | 'conversations' | 'ai-training' | 'whatsapp' | 'instagram' | 'calendar' | 'my-products' | 'meeting' | 'contacts' | 'cadastros' | 'settings' | 'profile' | 'support' | 'debug' | 'subscription';
 type Theme = 'light' | 'dark' | 'auto';
 
 interface AppNotification {
@@ -157,6 +159,12 @@ function App() {
         return <MyProducts addAppNotification={addAppNotification} />;
       case 'contacts':
         return <Contacts />;
+      case 'meeting':
+        return <Meeting addAppNotification={addAppNotification} />;
+      case 'meeting':
+        return <Meeting addAppNotification={addAppNotification} />;
+      case 'cadastros':
+        return <Cadastros />;
       case 'settings':
         return <Settings theme={theme} setTheme={setTheme} activeTab={settingsTab} setActiveTab={setSettingsTab} />;
       case 'profile':

@@ -54,6 +54,7 @@ const SubscriptionStatus: React.FC = () => {
   const handleManageSubscription = async () => {
     try {
       setCancelLoading(true);
+      setError(null);
       
       const { data: { session } } = await supabase.auth.getSession();
       
@@ -61,20 +62,26 @@ const SubscriptionStatus: React.FC = () => {
         throw new Error('Você precisa estar logado para gerenciar sua assinatura');
       }
       
+      console.log('🔄 Creating Stripe portal session...');
+      
       const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-portal-session`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${session.access_token}`,
         },
+        body: JSON.stringify({
+          return_url: window.location.origin + '/subscription'
+        }),
       });
       
       if (!response.ok) {
         const errorData = await response.json();
+        console.error('❌ Portal session creation failed:', errorData);
         
         // Handle specific Stripe configuration error
         if (errorData.error && errorData.error.includes('No configuration provided')) {
-          throw new Error('O portal de gerenciamento de assinatura ainda não foi configurado. Entre em contato com o suporte.');
+          throw new Error('Portal do cliente não configurado no Stripe. Configure em: Dashboard Stripe > Configurações > Portal do Cliente');
         }
         
         throw new Error(errorData.error || 'Falha ao criar sessão do portal');
@@ -83,6 +90,7 @@ const SubscriptionStatus: React.FC = () => {
       const { url } = await response.json();
       
       if (url) {
+        console.log('✅ Redirecting to Stripe portal:', url);
         window.location.href = url;
       } else {
         throw new Error('URL do portal não recebida');
@@ -288,7 +296,7 @@ const SubscriptionStatus: React.FC = () => {
           <button
             onClick={handleManageSubscription}
             disabled={cancelLoading}
-            className="w-full flex items-center justify-center space-x-2 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-gray-700 dark:text-gray-300"
+            className="w-full flex items-center justify-center space-x-2 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {cancelLoading ? (
               <Loader2 className="w-4 h-4 animate-spin" />
@@ -296,7 +304,7 @@ const SubscriptionStatus: React.FC = () => {
               <ExternalLink className="w-4 h-4" />
             )}
             <span>
-              {cancelLoading ? 'Processando...' : 'Gerenciar Assinatura'}
+              {cancelLoading ? 'Processando...' : 'Cancelar Assinatura'}
             </span>
           </button>
         </div>

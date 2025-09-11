@@ -70,12 +70,72 @@ export const useWhatsAppConnection = () => {
         setLoading(true);
         setError(null);
 
+        console.log('🔍 === INÍCIO DA BUSCA DO NÚMERO WHATSAPP ===');
+        console.log('🔍 Profile completo:', profile);
+        console.log('🔍 profile.id:', profile.id);
+        console.log('🔍 profile.organization_id:', profile.organization_id);
+        console.log('🔍 profile.user_id:', profile.user_id);
+        
+        // BUSCA 1: Tentar encontrar por profile_id E organization_id (busca atual)
+        console.log('🔍 BUSCA 1: Por profile_id E organization_id');
         const { data, error: fetchError } = await supabase
           .from('whatsapp_numbers')
           .select('*')
           .eq('profile_id', profile.id)
+          .eq('organization_id', profile.organization_id)
           .maybeSingle();
 
+        console.log('📊 BUSCA 1 - Resultado:', data);
+        console.log('📊 BUSCA 1 - Erro:', fetchError);
+        
+        // BUSCA 2: Tentar encontrar APENAS por organization_id (caso o profile_id esteja errado)
+        console.log('🔍 BUSCA 2: Apenas por organization_id');
+        const { data: dataByOrg, error: fetchErrorByOrg } = await supabase
+          .from('whatsapp_numbers')
+          .select('*')
+          .eq('organization_id', profile.organization_id);
+        
+        console.log('📊 BUSCA 2 - Resultados por organization_id:', dataByOrg);
+        console.log('📊 BUSCA 2 - Quantidade encontrada:', dataByOrg?.length || 0);
+        
+        // BUSCA 3: Tentar encontrar APENAS por profile_id (caso o organization_id esteja errado)
+        console.log('🔍 BUSCA 3: Apenas por profile_id');
+        const { data: dataByProfile, error: fetchErrorByProfile } = await supabase
+          .from('whatsapp_numbers')
+          .select('*')
+          .eq('profile_id', profile.id);
+        
+        console.log('📊 BUSCA 3 - Resultados por profile_id:', dataByProfile);
+        console.log('📊 BUSCA 3 - Quantidade encontrada:', dataByProfile?.length || 0);
+        
+        // BUSCA 4: Buscar TODOS os registros da tabela para debug
+        console.log('🔍 BUSCA 4: TODOS os registros da tabela (para debug)');
+        const { data: allRecords, error: allRecordsError } = await supabase
+          .from('whatsapp_numbers')
+          .select('*')
+          .limit(10);
+        
+        console.log('📊 BUSCA 4 - TODOS os registros:', allRecords);
+        console.log('📊 BUSCA 4 - Total de registros na tabela:', allRecords?.length || 0);
+        
+        // Analisar qual busca encontrou dados
+        let finalData = data;
+        let searchMethod = 'profile_id + organization_id';
+        
+        if (!data && dataByOrg && dataByOrg.length > 0) {
+          console.log('⚠️ Não encontrou por profile_id+organization_id, mas encontrou por organization_id');
+          finalData = dataByOrg[0]; // Usar o primeiro registro encontrado
+          searchMethod = 'organization_id apenas';
+        } else if (!data && dataByProfile && dataByProfile.length > 0) {
+          console.log('⚠️ Não encontrou por profile_id+organization_id, mas encontrou por profile_id');
+          finalData = dataByProfile[0]; // Usar o primeiro registro encontrado
+          searchMethod = 'profile_id apenas';
+        }
+        
+        console.log('🎯 RESULTADO FINAL:');
+        console.log('🎯 Método de busca usado:', searchMethod);
+        console.log('🎯 Dados finais:', finalData);
+        
         if (fetchError) {
           console.error('Error fetching WhatsApp number:', fetchError);
           if (fetchError.code !== 'PGRST116') {
@@ -83,7 +143,23 @@ export const useWhatsAppConnection = () => {
           }
         }
 
-        setWhatsappNumber(data);
+        console.log('📱 Número WhatsApp encontrado:', finalData);
+        if (finalData) {
+          console.log('📞 phone_number no banco:', finalData.phone_number);
+          console.log('📝 display_name no banco:', finalData.display_name);
+          console.log('🔗 connection_status no banco:', finalData.connection_status);
+          console.log('👤 profile_id no banco:', finalData.profile_id);
+          console.log('🏢 organization_id no banco:', finalData.organization_id);
+        } else {
+          console.log('❌ Nenhum número WhatsApp encontrado para este perfil');
+          console.log('❌ Tentativas de busca:');
+          console.log('   - Por profile_id + organization_id: FALHOU');
+          console.log('   - Por organization_id apenas:', dataByOrg?.length || 0, 'registros');
+          console.log('   - Por profile_id apenas:', dataByProfile?.length || 0, 'registros');
+        }
+        
+        console.log('🔍 === FIM DA BUSCA DO NÚMERO WHATSAPP ===');
+        setWhatsappNumber(finalData);
       } catch (err) {
         console.error('Error fetching WhatsApp number:', err);
         setError(err instanceof Error ? err.message : 'Unknown error');
@@ -133,21 +209,42 @@ export const useWhatsAppConnection = () => {
     try {
       console.log('💾 Saving/updating WhatsApp number in Supabase:', data);
 
-      // Verificar se já existe um registro para este profile
-      const { data: existingRecord, error: fetchError } = await supabase
+      // Verificar se já existe um registro para este profile E organização
+      console.log('🔍 Buscando registros existentes para profile_id:', data.profileId, 'organization_id:', data.organizationId);
+      
+      const { data: existingRecords, error: fetchError } = await supabase
         .from('whatsapp_numbers')
         .select('*')
         .eq('profile_id', data.profileId)
-        .maybeSingle();
+        .eq('organization_id', data.organizationId);
 
       if (fetchError && fetchError.code !== 'PGRST116') {
+        console.error('❌ Erro ao buscar registros existentes:', fetchError);
         throw fetchError;
       }
 
+      // Verificar se há múltiplos registros (isso não deveria acontecer)
+      if (existingRecords && existingRecords.length > 1) {
+        console.warn('⚠️ ATENÇÃO: Múltiplos registros encontrados para o mesmo profile/organização:', existingRecords.length);
+        console.warn('📋 Registros encontrados:', existingRecords);
+        
+        // Usar o mais recente (último criado)
+        existingRecords.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+        console.log('📝 Usando o registro mais recente:', existingRecords[0]);
+      }
+      
+      const existingRecord = existingRecords && existingRecords.length > 0 ? existingRecords[0] : null;
+      
+      console.log('🔍 Registros existentes encontrados:', existingRecords?.length || 0);
+      if (existingRecords && existingRecords.length > 0) {
+        console.log('📋 Registros existentes detalhados:', existingRecords);
+      }
+      console.log('📝 Vai atualizar registro existente:', existingRecord ? `ID: ${existingRecord.id}` : 'Não - vai criar novo');
+      
       const updateData = {
         profile_id: data.profileId,
         organization_id: data.organizationId,
-        phone_number: data.phoneNumber || null,
+        phone_number: data.phoneNumber, // Salva exatamente o valor recebido (string ou undefined)
         display_name: data.displayName || data.phoneNumber || 'WhatsApp Business',
         connection_status: data.connectionStatus,
         instance_id: data.instanceId,
@@ -156,23 +253,44 @@ export const useWhatsAppConnection = () => {
         updated_at: new Date().toISOString()
       };
 
+      console.log('📊 Dados de atualização preparados:', updateData);
+      console.log('📞 Número de telefone que será salvo:', data.phoneNumber);
+      
       let result;
 
       if (existingRecord) {
         // Atualizar registro existente
-        console.log('📝 Updating existing WhatsApp number record');
+        console.log(`📝 Atualizando registro existente do WhatsApp com ID: ${existingRecord.id}`);
+        console.log('📊 Dados antes da atualização:', existingRecord);
+        
         const { data: updatedData, error: updateError } = await supabase
           .from('whatsapp_numbers')
           .update(updateData)
           .eq('id', existingRecord.id)
+          .eq('profile_id', data.profileId) // Garantir que só atualiza do usuário correto
           .select()
           .single();
 
-        if (updateError) throw updateError;
+        if (updateError) {
+          console.error('❌ Erro ao atualizar número do WhatsApp:', updateError);
+          console.error('❌ Código do erro:', updateError.code);
+          console.error('❌ Mensagem do erro:', updateError.message);
+          console.error('❌ Detalhes do erro:', updateError.details);
+          
+          // Verificar se é erro de chave única (número já existe)
+          if (updateError.code === '23505' && updateError.message?.includes('phone_number')) {
+            throw new Error(`O número de telefone "${data.phoneNumber}" já está sendo usado por outro registro. Escolha um número diferente.`);
+          }
+          
+          throw updateError;
+        }
+        
+        console.log('✅ Número do WhatsApp atualizado com sucesso:', updatedData);
+        console.log('📞 Número atualizado para:', updatedData.phone_number);
         result = updatedData;
       } else {
         // Criar novo registro
-        console.log('➕ Creating new WhatsApp number record');
+        console.log('➕ Criando novo registro de número do WhatsApp');
         const { data: newData, error: insertError } = await supabase
           .from('whatsapp_numbers')
           .insert({
@@ -182,15 +300,29 @@ export const useWhatsAppConnection = () => {
           .select()
           .single();
 
-        if (insertError) throw insertError;
+        if (insertError) {
+          console.error('❌ Erro ao criar número do WhatsApp:', insertError);
+          console.error('❌ Código do erro:', insertError.code);
+          console.error('❌ Mensagem do erro:', insertError.message);
+          console.error('❌ Detalhes do erro:', insertError.details);
+          
+          // Verificar se é erro de chave única (número já existe)
+          if (insertError.code === '23505' && insertError.message?.includes('phone_number')) {
+            throw new Error(`O número de telefone "${data.phoneNumber}" já está sendo usado. Escolha um número diferente.`);
+          }
+          
+          throw insertError;
+        }
+        
+        console.log('✅ Número do WhatsApp criado com sucesso:', newData);
         result = newData;
       }
 
-      console.log('✅ WhatsApp number saved successfully:', result);
       setWhatsappNumber(result);
+      console.log('🔄 Estado local atualizado com:', result);
       return result;
     } catch (err) {
-      console.error('❌ Error saving WhatsApp number to Supabase:', err);
+      console.error('❌ Erro ao salvar número do WhatsApp no Supabase:', err);
       throw err;
     }
   };

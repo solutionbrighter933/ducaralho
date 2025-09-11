@@ -179,15 +179,11 @@ export const useAuth = () => {
         clearInterval(profileRefreshInterval);
       }
       
-      // Set up new interval to refresh profile every 30 seconds
+      // Set up new interval to refresh profile every 5 seconds to prevent disconnection
       profileRefreshInterval = setInterval(async () => {
         if (!mounted) return;
         
         try {
-          // Only log every 5th refresh to reduce console spam
-          const shouldLog = Math.random() < 0.2;
-          if (shouldLog) console.log('🔄 Refreshing profile data...');
-          
           const { data: profile, error: profileError } = await supabase
             .from('profiles')
             .select(`
@@ -202,23 +198,19 @@ export const useAuth = () => {
             .maybeSingle();
 
           if (profileError) {
-            if (shouldLog) console.warn('⚠️ Profile refresh error:', profileError);
             // Don't update state on error to avoid losing existing profile
           } else if (profile) {
-            if (shouldLog) console.log('✅ Profile refreshed successfully');
             setState(prev => ({
               ...prev,
               profile,
             }));
           } else if (!state.profile) {
-            if (shouldLog) console.warn('⚠️ Profile still not found during refresh');
             // Try to create profile if it doesn't exist
             tryCreateProfile(userId);
           }
         } catch (error) {
-          if (shouldLog) console.warn('⚠️ Error during profile refresh:', error);
         }
-      }, 60000); // Increased to 60 seconds to reduce load
+      }, 5000); // Every 5 seconds to prevent profile disconnection
     };
 
     // Function to attempt profile creation if it doesn't exist

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Smartphone, CheckCircle, AlertCircle, QrCode, Loader2, Send, RefreshCw, Settings } from 'lucide-react';
+import { Smartphone, CheckCircle, AlertCircle, QrCode, Loader2, Send, RefreshCw, Settings, Save } from 'lucide-react';
 import { useWhatsAppConnection } from '../hooks/useWhatsAppConnection';
 import { zapiService } from '../services/zapi.service';
 
@@ -32,6 +32,9 @@ const WhatsAppNumber: React.FC = () => {
   const [qrCodeLoading, setQrCodeLoading] = useState(false);
   const [checkingConnection, setCheckingConnection] = useState(false);
   const [profileRetryCount, setProfileRetryCount] = useState(0);
+  const [editablePhoneNumber, setEditablePhoneNumber] = useState('');
+  const [editableAiPrompt, setEditableAiPrompt] = useState('');
+  const [savingAiSettings, setSavingAiSettings] = useState(false);
 
   // Verificar se a Z-API está configurada
   const { isZAPIConfigured } = useWhatsAppConnection();
@@ -39,7 +42,17 @@ const WhatsAppNumber: React.FC = () => {
   // Sincronizar status local com dados do Supabase
   useEffect(() => {
     if (whatsappNumber) {
+      console.log('🔄 Sincronizando dados do Supabase com estado local:', whatsappNumber);
+      console.log('📞 phone_number recebido do Supabase:', whatsappNumber.phone_number);
+      console.log('🤖 ai_prompt recebido do Supabase:', whatsappNumber.ai_prompt);
+      
       setConnectionStatus(whatsappNumber.connection_status);
+      setEditablePhoneNumber(whatsappNumber.phone_number || '');
+      setEditableAiPrompt(whatsappNumber.ai_prompt || 'Você é um assistente virtual prestativo.');
+      
+      console.log('✅ Estado local atualizado:');
+      console.log('  - editablePhoneNumber:', whatsappNumber.phone_number || '');
+      console.log('  - editableAiPrompt:', whatsappNumber.ai_prompt || 'Você é um assistente virtual prestativo.');
     }
   }, [whatsappNumber]);
 
@@ -310,6 +323,48 @@ const WhatsAppNumber: React.FC = () => {
     } catch (err) {
       console.error('❌ Error recovering profile:', err);
       setError(err instanceof Error ? err.message : 'Erro ao recuperar perfil');
+    }
+  };
+
+  // Função para salvar configurações da IA
+  const handleSaveAiSettings = async () => {
+    if (!profile?.id || !profile?.organization_id) {
+      setError('Perfil do usuário não encontrado. Tente recarregar a página.');
+      return;
+    }
+
+    try {
+      setSavingAiSettings(true);
+      setError(null);
+      setSuccess(null);
+
+      console.log('💾 Salvando configurações da IA...');
+      console.log('📊 Dados a serem salvos:', {
+        profileId: profile.id,
+        organizationId: profile.organization_id,
+        phoneNumber: editablePhoneNumber.trim(),
+        aiPrompt: editableAiPrompt.trim()
+      });
+
+      await saveOrUpdateWhatsAppNumberInSupabase({
+        profileId: profile.id,
+        organizationId: profile.organization_id,
+        phoneNumber: editablePhoneNumber.trim(),
+        connectionStatus: whatsappNumber?.connection_status || 'DISCONNECTED',
+        instanceId: whatsappNumber?.instance_id || zapiService.getConfig().instanceId,
+        displayName: whatsappNumber?.display_name || 'WhatsApp Business',
+        isAiActive: whatsappNumber?.is_ai_active !== undefined ? whatsappNumber.is_ai_active : true,
+        aiPrompt: editableAiPrompt.trim() || 'Você é um assistente virtual prestativo.'
+      });
+
+      setSuccess('✅ Configurações da IA salvas com sucesso!');
+      setTimeout(() => setSuccess(null), 3000);
+
+    } catch (err) {
+      console.error('❌ Erro ao salvar configurações da IA:', err);
+      setError(err instanceof Error ? err.message : 'Erro ao salvar configurações da IA');
+    } finally {
+      setSavingAiSettings(false);
     }
   };
 
@@ -598,6 +653,7 @@ const WhatsAppNumber: React.FC = () => {
           )}
         </div>
       </div>
+
 
       {/* Fluxo Correto Info */}
       <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-6">

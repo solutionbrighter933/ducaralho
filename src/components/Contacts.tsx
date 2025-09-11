@@ -1,414 +1,650 @@
-import React, { useState, useEffect } from 'react';
-import { Users, Search, Loader2, AlertCircle, CheckCircle, Phone, Building, RefreshCw, UserPlus, Download, Filter, Send, X, Bot, MessageSquare, Sparkles, FileSpreadsheet } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import React, { useState, useEffect, useRef } from 'react';
+import { 
+  Users, 
+  Search, 
+  Plus, 
+  Edit, 
+  Trash2, 
+  Phone, 
+  Mail, 
+  MapPin, 
+  Calendar,
+  Filter,
+  Download,
+  Upload,
+  RefreshCw,
+  Loader2,
+  AlertCircle,
+  CheckCircle,
+  X,
+  MessageSquare,
+  Send,
+  Building,
+  Target,
+  Zap,
+  Clock,
+  UserCheck,
+  Ban,
+  Bot,
+  User,
+  Sparkles
+} from 'lucide-react';
 import { useAuthContext } from './AuthProvider';
-import { useWhatsAppConnection } from '../hooks/useWhatsAppConnection';
+import { supabase } from '../lib/supabase';
 import { zapiService } from '../services/zapi.service';
 
-interface LeadB2B {
-  nomenegocio: string;
-  numero: string;
+interface Contact {
+  id: string;
+  organization_id: string;
+  phone_number: string;
+  name: string | null;
+  email: string | null;
+  avatar_url: string | null;
+  location: string | null;
+  tags: string[] | null;
+  metadata: any;
+  status: string;
+  last_contact: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
-interface LeadGenerationMessage {
+interface LeadB2B {
+  id: string;
+  nomenegocio: string;
+  numero: string;
+  user_id: string;
+  organization_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+interface GeneratedLead {
+  nome: string;
+  numero: string;
+  segmento: string;
+  cidade: string;
+  isNew?: boolean;
+}
+
+interface SentMessage {
+  numero: string;
+  timestamp: string;
+  message: string;
+}
+
+interface ChatMessage {
   id: string;
   content: string;
   sender: 'user' | 'assistant';
   timestamp: Date;
   isTyping?: boolean;
+  leads?: GeneratedLead[];
+  showContactActions?: boolean;
+}
+
+interface SavedLeadB2B {
+  id: string;
+  nomenegocio: string;
+  numero: string;
+  user_id: string;
+  organization_id: string;
+  created_at: string;
+  updated_at: string;
 }
 
 const Contacts: React.FC = () => {
-  const { user, loading: authLoading, profile } = useAuthContext();
-  const [contacts, setContacts] = useState<LeadB2B[]>([]);
-  const { isConnected, isZAPIConfigured } = useWhatsAppConnection();
+  const { user, profile } = useAuthContext();
+  const [activeTab, setActiveTab] = useState<'contacts' | 'leads-generator'>('leads-generator');
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [leadsB2B, setLeadsB2B] = useState<any[]>([]);
+  const [loadingLeads, setLoadingLeads] = useState(false);
+  const [showMessageModal, setShowMessageModal] = useState(false);
+  const [selectedLead, setSelectedLead] = useState<LeadB2B | null>(null);
+  const [customMessage, setCustomMessage] = useState('');
+  const [sendingMessage, setSendingMessage] = useState(false);
+  const [waitingForLeads, setWaitingForLeads] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [generatedLeads, setGeneratedLeads] = useState<GeneratedLead[]>([]);
+  const [sentMessages, setSentMessages] = useState<SentMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [showBulkMessageModal, setShowBulkMessageModal] = useState(false);
-  const [bulkMessageContent, setBulkMessageContent] = useState('');
-  const [isSendingBulk, setIsSendingBulk] = useState(false);
-  const [bulkSendResult, setBulkSendResult] = useState<{sent: number, failed: number, total: number, errors: string[] } | null>(null);
-  const [activeTab, setActiveTab] = useState<'contacts' | 'generate-leads'>('contacts');
-  const [detectedPhoneNumbers, setDetectedPhoneNumbers] = useState<string[]>([]);
-  const [detectedCompanyData, setDetectedCompanyData] = useState<{name: string, phone: string}[]>([]);
-  const [savingToContacts, setSavingToContacts] = useState(false);
-  const [leadMessages, setLeadMessages] = useState<LeadGenerationMessage[]>([
+  const [showContactModal, setShowContactModal] = useState(false);
+  const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
+  const [sendingMessages, setSendingMessages] = useState(false);
+  const [contactForm, setContactForm] = useState({
+    name: '',
+    phone_number: '',
+    email: '',
+    location: '',
+    tags: [] as string[]
+  });
+
+  // Estados para o chat do gerador de leads
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
     {
       id: '1',
-      content: 'Olá! Sou seu assistente para geração de leads B2B. Como posso ajudá-lo hoje? Você pode me pedir para buscar empresas específicas, como "Buscar clínicas de odonto em São Paulo" ou "Encontrar restaurantes em Belo Horizonte".',
+      content: 'Olá! Sou seu assistente de geração de leads B2B. Como posso ajudá-lo hoje?',
       sender: 'assistant',
       timestamp: new Date(),
     }
   ]);
-  const [leadInput, setLeadInput] = useState('');
-  const [isGeneratingLeads, setIsGeneratingLeads] = useState(false);
-  const [showPersonalizedMessageModal, setShowPersonalizedMessageModal] = useState(false);
-  const [showSendAllPersonalizedMessageModal, setShowSendAllPersonalizedMessageModal] = useState(false);
-  const [personalizedMessageContent, setPersonalizedMessageContent] = useState('');
-  const [targetPhoneNumberForPersonalizedMessage, setTargetPhoneNumberForPersonalizedMessage] = useState('');
+  const [extractedContacts, setExtractedContacts] = useState<Array<{
+    id: string;
+    nome: string;
+    numero: string;
+    endereco?: string;
+    source: string;
+  }>>([]);
+  const [showContactsModal, setShowContactsModal] = useState(false);
+  const [messageText, setMessageText] = useState('');
+  const [sendingBulkMessage, setSendingBulkMessage] = useState(false);
+  const [inputMessage, setInputMessage] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
-  const [isConnectingSheets, setIsConnectingSheets] = useState(false);
-  const [sheetsConnected, setSheetsConnected] = useState(false);
+  const [savedLeads, setSavedLeads] = useState<SavedLeadB2B[]>([]);
+  const [leadsLoading, setLeadsLoading] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  // Função para enviar mensagem para o webhook N8N de leads
-  const sendLeadRequestToAPI = async (message: string): Promise<string> => {
-    try {
-      console.log('🚀 Enviando solicitação de leads para N8N:', message);
-      
-      const webhookUrl = import.meta.env.VITE_N8N_LEADS_WEBHOOK_URL;
-      if (!webhookUrl) {
-        throw new Error('URL do webhook de leads não configurada. Verifique VITE_N8N_LEADS_WEBHOOK_URL no arquivo .env');
-      }
-      
-      const response = await fetch(webhookUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json, text/plain, */*',
-        },
-        body: JSON.stringify({
-          message: message,
-          timestamp: new Date().toISOString(),
-          user_id: user?.id || 'attendos_user',
-          session_id: `leads_session_${Date.now()}`,
-          type: 'lead_generation'
-        }),
-      });
+  // Função para extrair contatos da resposta do N8N
+  const extractContactsFromResponse = (responseText: string) => {
+    const contacts: Array<{id: string; nome: string; numero: string; endereco?: string; source: string}> = [];
+    
+    // Regex para encontrar padrões de nome e telefone
+    const patterns = [
+      // Padrão: Nome - Telefone
+      /([A-Za-zÀ-ÿ\s]+)\s*[-–—]\s*(\+?55\s*\(?[1-9]{2}\)?\s*9?\d{4}[-\s]?\d{4})/g,
+      // Padrão: Nome: Telefone
+      /([A-Za-zÀ-ÿ\s]+):\s*(\+?55\s*\(?[1-9]{2}\)?\s*9?\d{4}[-\s]?\d{4})/g,
+      // Padrão: Nome (Telefone)
+      /([A-Za-zÀ-ÿ\s]+)\s*\(\s*(\+?55\s*\(?[1-9]{2}\)?\s*9?\d{4}[-\s]?\d{4})\s*\)/g,
+      // Padrão: Nome | Telefone
+      /([A-Za-zÀ-ÿ\s]+)\s*\|\s*(\+?55\s*\(?[1-9]{2}\)?\s*9?\d{4}[-\s]?\d{4})/g,
+      // Padrão mais flexível: qualquer nome seguido de número
+      /([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\s]{2,30})\s+(\+?55\s*\(?[1-9]{2}\)?\s*9?\d{4}[-\s]?\d{4})/g
+    ];
 
-      console.log('📡 Status da resposta N8N leads:', response.status);
-      console.log('📡 Headers da resposta N8N leads:', Object.fromEntries(response.headers.entries()));
-
-      if (!response.ok) {
-        throw new Error(`Erro HTTP: ${response.status} - ${response.statusText}`);
-      }
-
-      // Verificar o tipo de conteúdo da resposta
-      const contentType = response.headers.get('content-type');
-      console.log('📄 Content-Type N8N leads:', contentType);
-
-      let responseText = '';
-
-      if (contentType && contentType.includes('application/json')) {
-        try {
-          const data = await response.json();
-          console.log('✅ Resposta JSON N8N leads recebida:', data);
-          
-          // Extrair o texto da resposta
-          if (typeof data === 'string') {
-            responseText = data;
-          } else if (data.response) {
-            responseText = data.response;
-          } else if (data.message) {
-            responseText = data.message;
-          } else if (data.text) {
-            responseText = data.text;
-          } else if (data.content) {
-            responseText = data.content;
-          } else if (data.answer) {
-            responseText = data.answer;
-          } else if (data.reply) {
-            responseText = data.reply;
-          } else if (data.leads) {
-            responseText = data.leads;
-          } else {
-            responseText = JSON.stringify(data);
+    patterns.forEach(pattern => {
+      let match;
+      while ((match = pattern.exec(responseText)) !== null) {
+        const nome = match[1].trim();
+        const numero = match[2].replace(/\D/g, ''); // Remove formatação
+        
+        // Validar se o nome não é muito curto e o número tem tamanho correto
+        if (nome.length >= 3 && numero.length >= 10 && numero.length <= 13) {
+          // Verificar se já não foi adicionado
+          const exists = contacts.some(c => c.numero === numero || c.nome.toLowerCase() === nome.toLowerCase());
+          if (!exists) {
+            contacts.push({
+              id: `contact-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+              nome,
+              numero,
+              source: responseText.substring(Math.max(0, match.index - 50), match.index + match[0].length + 50)
+            });
           }
-        } catch (jsonError) {
-          console.error('❌ Erro ao fazer parse do JSON N8N leads:', jsonError);
-          throw new Error('Resposta JSON inválida da API de leads');
-        }
-      } else {
-        try {
-          responseText = await response.text();
-          console.log('📝 Resposta como texto N8N leads:', responseText);
-        } catch (textError) {
-          console.error('❌ Erro ao ler resposta como texto N8N leads:', textError);
-          throw new Error('Erro ao ler resposta da API de leads');
         }
       }
+    });
 
-      if (!responseText || responseText.trim() === '') {
-        throw new Error('Resposta vazia da API de leads');
+    // Se não encontrou contatos com regex, tentar buscar apenas números
+    if (contacts.length === 0) {
+      const phonePattern = /(\+?55\s*\(?[1-9]{2}\)?\s*9?\d{4}[-\s]?\d{4})/g;
+      let phoneMatch;
+      let phoneIndex = 1;
+      
+      while ((phoneMatch = phonePattern.exec(responseText)) !== null) {
+        const numero = phoneMatch[1].replace(/\D/g, '');
+        
+        if (numero.length >= 10 && numero.length <= 13) {
+          const exists = contacts.some(c => c.numero === numero);
+          if (!exists) {
+            contacts.push({
+              id: `phone-${Date.now()}-${phoneIndex}`,
+              nome: `Contato ${phoneIndex}`,
+              numero,
+              source: responseText.substring(Math.max(0, phoneMatch.index - 30), phoneMatch.index + phoneMatch[0].length + 30)
+            });
+            phoneIndex++;
+          }
+        }
+      }
+    }
+
+    return contacts;
+  };
+
+  // Função para enviar mensagem individual
+  const sendMessageToContact = async (contact: {nome: string; numero: string}) => {
+    if (!messageText.trim()) {
+      setError('Digite uma mensagem antes de enviar');
+      return;
+    }
+
+    try {
+      setSendingMessage(true);
+      setError(null);
+
+      // Verificar se Z-API está configurada
+      if (!zapiService.isConfigured()) {
+        throw new Error('Z-API não configurada. Configure em Configurações > Integração Z-API');
       }
 
-      return responseText.trim();
-      
-    } catch (error) {
-      console.error('❌ Erro detalhado ao chamar API de leads:', error);
-      
-      if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
-        throw new Error('Erro de conexão: Não foi possível conectar à API de leads. Verifique sua conexão com a internet.');
-      } else if (error instanceof Error && error.message.includes('body stream already read')) {
-        throw new Error('Erro interno: Problema na leitura da resposta da API de leads.');
-      } else if (error instanceof SyntaxError && error.message.includes('JSON')) {
-        throw new Error('Erro de formato: A API de leads retornou uma resposta JSON inválida.');
-      } else {
-        throw new Error(`Erro de conexão: ${error instanceof Error ? error.message : 'Erro desconhecido'}`);
+      console.log(`📤 Enviando mensagem para ${contact.nome} (${contact.numero})...`);
+
+      const result = await zapiService.sendTextMessage(contact.numero, messageText.trim());
+
+      if (!result.success) {
+        throw new Error(result.error || 'Falha ao enviar mensagem');
       }
+
+      setSuccess(`✅ Mensagem enviada para ${contact.nome}!`);
+      setShowMessageModal(false);
+      setMessageText('');
+      setTimeout(() => setSuccess(null), 3000);
+
+    } catch (err) {
+      console.error('❌ Erro ao enviar mensagem:', err);
+      setError(err instanceof Error ? err.message : 'Erro ao enviar mensagem');
+    } finally {
+      setSendingMessage(false);
     }
   };
-  useEffect(() => {
-    if (!authLoading) {
-      fetchContacts();
-    }
-  }, [authLoading]);
 
-  const fetchContacts = async () => {
-    setLoading(true);
-    setError(null);
+  // Função para enviar mensagem para todos os contatos
+  const sendBulkMessage = async () => {
+    if (!messageText.trim()) {
+      setError('Digite uma mensagem antes de enviar');
+      return;
+    }
+
+    if (extractedContacts.length === 0) {
+      setError('Nenhum contato encontrado para enviar mensagem');
+      return;
+    }
+
     try {
-      console.log('📞 Carregando contatos da tabela leadsb2b...');
+      setSendingBulkMessage(true);
+      setError(null);
+
+      // Verificar se Z-API está configurada
+      if (!zapiService.isConfigured()) {
+        throw new Error('Z-API não configurada. Configure em Configurações > Integração Z-API');
+      }
+
+      console.log(`📤 Enviando mensagem para ${extractedContacts.length} contatos...`);
+
+      let successCount = 0;
+      let errorCount = 0;
+
+      for (const contact of extractedContacts) {
+        try {
+          const result = await zapiService.sendTextMessage(contact.numero, messageText.trim());
+          
+          if (result.success) {
+            successCount++;
+            console.log(`✅ Mensagem enviada para ${contact.nome}`);
+          } else {
+            errorCount++;
+            console.error(`❌ Falha ao enviar para ${contact.nome}:`, result.error);
+          }
+          
+          // Pequeno delay entre envios para não sobrecarregar
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        } catch (err) {
+          errorCount++;
+          console.error(`❌ Erro ao enviar para ${contact.nome}:`, err);
+        }
+      }
+
+      setSuccess(`✅ Mensagens enviadas! ${successCount} sucessos, ${errorCount} falhas`);
+      setShowMessageModal(false);
+      setMessageText('');
+      setTimeout(() => setSuccess(null), 5000);
+
+    } catch (err) {
+      console.error('❌ Erro no envio em massa:', err);
+      setError(err instanceof Error ? err.message : 'Erro no envio em massa');
+    } finally {
+      setSendingBulkMessage(false);
+    }
+  };
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [chatMessages, isTyping]);
+
+  // Carregar leads salvos
+  const loadSavedLeads = async () => {
+    try {
+      setLeadsLoading(true);
+      
+      if (!user?.id || !profile?.organization_id) {
+        throw new Error('Usuário ou organização não encontrados');
+      }
+
+      console.log('📋 Carregando leads B2B salvos...');
+
+      const { data: leadsData, error: leadsError } = await supabase
+        .from('leadsb2b')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('organization_id', profile.organization_id)
+        .order('created_at', { ascending: false });
+
+      if (leadsError) {
+        console.error('❌ Erro ao buscar leads salvos:', leadsError);
+        throw leadsError;
+      }
+
+      console.log('✅ Leads salvos carregados:', leadsData?.length || 0);
+      setSavedLeads(leadsData || []);
+
+    } catch (err) {
+      console.error('❌ Erro ao carregar leads salvos:', err);
+    } finally {
+      setLeadsLoading(false);
+    }
+  };
+
+  // Carregar leads B2B da tabela leadsb2b
+  const loadLeadsB2B = async () => {
+    try {
+      setLoadingLeads(true);
+      setError(null);
+
+      if (!user?.id || !profile?.organization_id) {
+        throw new Error('Usuário ou organização não encontrados');
+      }
+
+      console.log('📋 Carregando leads B2B da tabela leadsb2b...');
+
+      const { data: leadsData, error: leadsError } = await supabase
+        .from('leadsb2b')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('organization_id', profile.organization_id)
+        .order('created_at', { ascending: false });
+
+      if (leadsError) {
+        console.error('❌ Erro ao buscar leads B2B:', leadsError);
+        throw leadsError;
+      }
+
+      console.log('✅ Leads B2B carregados:', leadsData?.length || 0);
+      setLeadsB2B(leadsData || []);
+
+    } catch (err) {
+      console.error('❌ Erro ao carregar leads B2B:', err);
+      setError(err instanceof Error ? err.message : 'Erro desconhecido');
+    } finally {
+      setLoadingLeads(false);
+    }
+  };
+
+  // Carregar leads quando mudar para aba de contatos
+  useEffect(() => {
+    if (activeTab === 'contacts' && user?.id && profile?.organization_id) {
+      loadLeadsB2B();
+    }
+  }, [activeTab, user?.id, profile?.organization_id]);
+
+  // Carregar leads salvos quando o componente montar
+  useEffect(() => {
+    if (user?.id && profile?.organization_id && activeTab === 'contacts') {
+      loadSavedLeads();
+    }
+  }, [user?.id, profile?.organization_id, activeTab]);
+
+  // Carregar dados iniciais
+  useEffect(() => {
+    if (user?.id && profile?.organization_id) {
+      if (activeTab === 'contacts') {
+        loadContacts();
+      } else {
+        loadLeadsB2B();
+      }
+    }
+  }, [user?.id, profile?.organization_id, activeTab]);
+
+  // Carregar mensagens enviadas do localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem('sentLeadMessages');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        setSentMessages(parsed);
+      } catch (e) {
+        console.warn('Erro ao carregar mensagens enviadas:', e);
+      }
+    }
+  }, []);
+
+  // Salvar mensagens enviadas no localStorage
+  const saveSentMessages = (messages: SentMessage[]) => {
+    localStorage.setItem('sentLeadMessages', JSON.stringify(messages));
+  };
+
+  // Verificar se já enviou mensagem para um número
+  const hasMessageBeenSent = (numero: string): boolean => {
+    return sentMessages.some(msg => msg.numero === numero);
+  };
+
+  // Adicionar mensagem à lista de enviadas
+  const addSentMessage = (numero: string, message: string) => {
+    const newMessage: SentMessage = {
+      numero,
+      timestamp: new Date().toISOString(),
+      message
+    };
+    
+    const updatedMessages = [...sentMessages, newMessage];
+    setSentMessages(updatedMessages);
+    saveSentMessages(updatedMessages);
+  };
+
+  // Limpar histórico de mensagens enviadas
+  const clearSentMessages = () => {
+    setSentMessages([]);
+    localStorage.removeItem('sentLeadMessages');
+  };
+
+  const loadContacts = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      if (!user?.id || !profile?.organization_id) {
+        throw new Error('Usuário ou organização não encontrados');
+      }
 
       const { data, error: fetchError } = await supabase
-        .from('leadsb2b')
-        .select('nomenegocio, numero')
-        .order('nomenegocio', { ascending: true });
+        .from('contacts')
+        .select('*')
+        .eq('organization_id', profile.organization_id)
+        .order('created_at', { ascending: false });
 
       if (fetchError) {
-        console.error('❌ Erro ao buscar contatos:', fetchError);
         throw fetchError;
       }
 
-      console.log('✅ Contatos carregados:', data?.length || 0);
       setContacts(data || []);
     } catch (err) {
       console.error('❌ Erro ao carregar contatos:', err);
-      setError(err instanceof Error ? err.message : 'Erro desconhecido ao carregar contatos.');
+      setError(err instanceof Error ? err.message : 'Erro desconhecido');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleRefresh = () => {
-    fetchContacts();
-  };
-
-  const handleExportContacts = () => {
-    if (contacts.length === 0) {
-      setError('Nenhum contato para exportar.');
-      return;
-    }
-
-    try {
-      // Criar CSV
-      const csvHeader = 'Nome do Negócio,Número\n';
-      const csvContent = contacts
-        .map(contact => `"${contact.nomenegocio}","${contact.numero}"`)
-        .join('\n');
-      
-      const csvData = csvHeader + csvContent;
-      
-      // Criar e baixar arquivo
-      const blob = new Blob([csvData], { type: 'text/csv;charset=utf-8;' });
-      const link = document.createElement('a');
-      const url = URL.createObjectURL(blob);
-      
-      link.setAttribute('href', url);
-      link.setAttribute('download', `contatos_b2b_${new Date().toISOString().split('T')[0]}.csv`);
-      link.style.visibility = 'hidden';
-      
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      
-      setSuccess('Contatos exportados com sucesso!');
-      setTimeout(() => setSuccess(null), 3000);
-    } catch (err) {
-      console.error('❌ Erro ao exportar contatos:', err);
-      setError('Erro ao exportar contatos.');
-    }
-  };
-
-  const handleConnectGoogleSheets = async () => {
-    setIsConnectingSheets(true);
-    setError(null);
-    setSuccess(null);
+  // Processar mensagem do usuário e extrair parâmetros
+  const processUserMessage = (message: string) => {
+    const messageLower = message.toLowerCase();
     
-    try {
-      console.log('🔗 Iniciando conexão com Google Sheets...');
-      
-      // Simular processo de conexão (em produção, isso seria uma integração real)
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      // Simular sucesso na conexão
-      setSheetsConnected(true);
-      setSuccess('Google Sheets conectado com sucesso! Agora você pode exportar contatos diretamente para planilhas.');
-      setTimeout(() => setSuccess(null), 5000);
-      
-      console.log('✅ Google Sheets conectado com sucesso');
-    } catch (err) {
-      console.error('❌ Erro ao conectar Google Sheets:', err);
-      setError('Erro ao conectar com Google Sheets. Tente novamente.');
-    } finally {
-      setIsConnectingSheets(false);
+    // Extrair quantidade
+    const quantityMatch = message.match(/(\d+)\s*leads?/i) || message.match(/gere?\s*(\d+)/i);
+    const quantidade = quantityMatch ? parseInt(quantityMatch[1]) : 50;
+    
+    // Extrair segmento/nicho
+    let segmento = '';
+    const segmentoPatterns = [
+      /(?:de|para)\s+([a-záàâãéèêíïóôõöúçñ\s]+?)(?:\s+em|\s+na|\s+no|$)/i,
+      /leads?\s+(?:de|para)\s+([a-záàâãéèêíïóôõöúçñ\s]+?)(?:\s+em|\s+na|\s+no|$)/i,
+      /(restaurantes?|clínicas?|lojas?|farmácias?|academias?|salões?|barbearias?|escritórios?|consultórios?|empresas?|comércios?|serviços?)/i
+    ];
+    
+    for (const pattern of segmentoPatterns) {
+      const match = message.match(pattern);
+      if (match) {
+        segmento = match[1].trim();
+        break;
+      }
     }
+    
+    // Extrair cidade
+    let cidade = '';
+    const cidadePatterns = [
+      /(?:em|na|no)\s+([a-záàâãéèêíïóôõöúçñ\s]+?)(?:\s*$|\s*,|\s*\.)/i,
+      /(são paulo|rio de janeiro|belo horizonte|salvador|brasília|fortaleza|recife|porto alegre|curitiba|goiânia)/i
+    ];
+    
+    for (const pattern of cidadePatterns) {
+      const match = message.match(pattern);
+      if (match) {
+        cidade = match[1].trim();
+        break;
+      }
+    }
+    
+    return { quantidade, segmento, cidade };
   };
 
-  const handleExportToSheets = async () => {
-    if (!sheetsConnected) {
-      setError('Conecte o Google Sheets primeiro para exportar contatos.');
-      return;
-    }
-
-    if (contacts.length === 0) {
-      setError('Nenhum contato para exportar.');
-      return;
-    }
-
+  // Gerar leads baseado na mensagem do usuário
+  const generateLeadsFromMessage = async (userMessage: string) => {
     try {
-      setLoading(true);
-      console.log('📊 Exportando contatos para Google Sheets...');
-      
-      // Simular exportação (em produção, isso seria uma integração real com Google Sheets API)
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      
-      setSuccess(`${contacts.length} contatos exportados para Google Sheets com sucesso!`);
-      setTimeout(() => setSuccess(null), 5000);
-      
-      console.log('✅ Contatos exportados para Google Sheets');
-    } catch (err) {
-      console.error('❌ Erro ao exportar para Google Sheets:', err);
-      setError('Erro ao exportar contatos para Google Sheets.');
-    } finally {
-      setLoading(false);
-    }
-  };
+      setIsGenerating(true);
+      setIsTyping(true);
+      setError(null);
+      setWaitingForLeads(true);
 
-  // Detectar números de telefone na última resposta da IA
-  useEffect(() => {
-    const lastAssistantMessage = leadMessages.slice().reverse().find(msg => msg.sender === 'assistant');
-    if (lastAssistantMessage) {
-      // Regex aprimorada para detectar números de telefone brasileiros
-      const phoneRegex = /\b(?:\+55\s?)?(?:\(?\d{2}\)?\s?)?(?:9\d{4}[-.\s]?\d{4}|\d{4}[-.\s]?\d{4})\b/g;
-      const numbers = lastAssistantMessage.content.match(phoneRegex);
-      if (numbers) {
-        // Remover duplicatas e formatar para apenas dígitos para envio
-        const uniqueNumbers = Array.from(new Set(numbers.map(num => num.replace(/\D/g, ''))));
-        setDetectedPhoneNumbers(uniqueNumbers);
+      const response = await fetch('https://n8n.atendos.com.br/webhook/leads-generator', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message: userMessage,
+          user_id: user?.id,
+          organization_id: profile?.organization_id,
+          timestamp: new Date().toISOString(),
+          session_id: `leads_${Date.now()}`
+        }),
+      });
+
+      // Verificar se a resposta foi bem-sucedida
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Erro HTTP: ${response.status} - ${response.statusText}. Resposta: ${errorText}`);
+      }
+
+      // Processar resposta do N8N
+      const contentType = response.headers.get('content-type');
+      let responseText = '';
+      
+      if (contentType && contentType.includes('application/json')) {
+        try {
+          const data = await response.json();
+          responseText = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+        } catch (jsonError) {
+          console.warn('⚠️ Resposta marcada como JSON mas não é válida, lendo como texto');
+          responseText = await response.text();
+        }
       } else {
-        setDetectedPhoneNumbers([]);
+        responseText = await response.text();
       }
+
+      console.log('✅ Resposta do N8N recebida:', responseText.substring(0, 200) + '...');
       
-      // Detectar dados de empresas (nome + telefone)
-      const detectedData = detectCompanyData(lastAssistantMessage.content);
-      setDetectedCompanyData(detectedData);
-    }
-  }, [leadMessages]);
+      // Extrair contatos da resposta
+      const contacts = extractContactsFromResponse(responseText);
+      setExtractedContacts(contacts);
+      
+      console.log(`📞 ${contacts.length} contatos extraídos da resposta`);
+      
+      // Adicionar resposta do N8N ao chat
+      const assistantMessage: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        content: responseText,
+        sender: 'assistant',
+        timestamp: new Date(),
+      };
 
-  const handleSendBulkMessage = async () => {
-    if (!bulkMessageContent.trim()) {
-      setError('A mensagem não pode estar vazia.');
-      return;
-    }
-
-    setIsSendingBulk(true);
-    setBulkSendResult(null);
-    setError(null);
-    setSuccess(null);
-
-    let sentCount = 0;
-    let failedCount = 0;
-    const errors: string[] = [];
-
-    for (const contact of filteredContacts) {
-      try {
-        // Ensure the phone number is clean and in a format Z-API expects (e.g., just digits)
-        const cleanedPhoneNumber = contact.numero.replace(/\D/g, '');
-        if (!cleanedPhoneNumber) {
-          throw new Error(`Número inválido para ${contact.nomenegocio}`);
-        }
-
-        const result = await zapiService.sendTextMessage(cleanedPhoneNumber, bulkMessageContent);
-
-        if (result.success) {
-          sentCount++;
-        } else {
-          failedCount++;
-          errors.push(`Falha ao enviar para ${contact.nomenegocio} (${contact.numero}): ${result.error || 'Erro desconhecido'}`);
-        }
-      } catch (err) {
-        failedCount++;
-        errors.push(`Exceção ao enviar para ${contact.nomenegocio} (${contact.numero}): ${err instanceof Error ? err.message : 'Erro desconhecido'}`);
+      setChatMessages(prev => [...prev, assistantMessage]);
+      
+      // Se encontrou contatos, mostrar opções de envio
+      if (contacts.length > 0) {
+        setTimeout(() => {
+          const contactsMessage: ChatMessage = {
+            id: (Date.now() + 2).toString(),
+            content: `📞 Encontrei ${contacts.length} contato${contacts.length !== 1 ? 's' : ''} com número de telefone. Deseja enviar mensagem?`,
+            sender: 'assistant',
+            timestamp: new Date(),
+            showContactActions: true
+          };
+          setChatMessages(prev => [...prev, contactsMessage]);
+        }, 1000);
       }
-    }
 
-    setIsSendingBulk(false);
-    setBulkSendResult({
-      sent: sentCount,
-      failed: failedCount,
-      total: filteredContacts.length,
-      errors: errors
-    });
+      setSuccess('✅ Leads gerados com sucesso via N8N!');
+      setTimeout(() => setSuccess(null), 3000);
 
-    if (failedCount === 0) {
-      setSuccess(`Mensagem enviada para todos os ${sentCount} contatos com sucesso!`);
-      setBulkMessageContent(''); // Clear message content on full success
-    } else if (sentCount > 0) {
-      setError(`Mensagem enviada para ${sentCount} contatos, mas falhou para ${failedCount}.`);
-    } else {
-      setError('Falha ao enviar mensagem para todos os contatos.');
+    } catch (err) {
+      console.error('❌ Erro ao gerar leads via N8N:', err);
+      
+      // Mostrar erro na conversa
+      const errorMessage: ChatMessage = {
+        id: `ai-error-${Date.now()}`,
+        content: `❌ Erro ao buscar leads via N8N: ${err instanceof Error ? err.message : 'Erro desconhecido'}`,
+        sender: 'assistant',
+        timestamp: new Date(),
+      };
+      
+      setChatMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setIsTyping(false);
+      setWaitingForLeads(false);
+      setIsGenerating(false);
     }
-    // Keep modal open to show results, user can close it
-    // setTimeout(() => setShowBulkMessageModal(false), 5000); // Auto-close after 5 seconds
   };
 
-  const handleSendLeadRequest = async () => {
-    if (!leadInput.trim() || isGeneratingLeads) return;
+  // Enviar mensagem no chat
+  const handleSendChatMessage = async () => {
+    if (!inputMessage.trim() || isGenerating) return;
 
-    const userMessage: LeadGenerationMessage = {
-      id: Date.now().toString(),
-      content: leadInput.trim(),
+    const userMessage: ChatMessage = {
+      id: `msg-${Date.now()}`,
+      content: inputMessage.trim(),
       sender: 'user',
       timestamp: new Date(),
     };
 
-    setLeadMessages(prev => [...prev, userMessage]);
-    const currentMessage = leadInput.trim();
-    setLeadInput('');
-    setIsGeneratingLeads(true);
-    setIsTyping(true);
-    setError(null);
+    setChatMessages(prev => [...prev, userMessage]);
+    const currentMessage = inputMessage.trim();
+    setInputMessage('');
 
-    try {
-      // Chamar a API N8N de leads
-      const apiResponse = await sendLeadRequestToAPI(currentMessage);
-      
-      // Simular um pequeno delay para parecer mais natural
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      const assistantMessage: LeadGenerationMessage = {
-        id: (Date.now() + 1).toString(),
-        content: apiResponse,
-        sender: 'assistant',
-        timestamp: new Date(),
-      };
-
-      setLeadMessages(prev => [...prev, assistantMessage]);
-      
-    } catch (error) {
-      console.error('❌ Erro na geração de leads:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Erro desconhecido';
-      setError(errorMessage);
-      
-      const fallbackMessage: LeadGenerationMessage = {
-        id: (Date.now() + 1).toString(),
-        content: 'Desculpe, ocorreu um erro ao processar sua solicitação de leads. Verifique sua conexão e tente novamente em alguns instantes.',
-        sender: 'assistant',
-        timestamp: new Date(),
-      };
-      setLeadMessages(prev => [...prev, fallbackMessage]);
-    } finally {
-      setIsGeneratingLeads(false);
-      setIsTyping(false);
-    }
+    // Processar mensagem
+    await generateLeadsFromMessage(currentMessage);
   };
 
-  const handleLeadKeyPress = (e: React.KeyboardEvent) => {
+  const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSendLeadRequest();
+      handleSendChatMessage();
     }
   };
 
@@ -419,338 +655,311 @@ const Contacts: React.FC = () => {
     });
   };
 
+  const sendBulkMessages = async () => {
+    if (!customMessage.trim()) {
+      setError('Digite uma mensagem para enviar aos leads');
+      return;
+    }
+
+    if (!zapiService.isConfigured()) {
+      setError('Z-API não configurada. Configure em Configurações > Integração Z-API');
+      return;
+    }
+
+    try {
+      setSendingMessages(true);
+      setError(null);
+      setSuccess(null);
+
+      const leadsToSend = generatedLeads.filter(lead => !hasMessageBeenSent(lead.numero));
+
+      if (leadsToSend.length === 0) {
+        setError('Todos os leads desta lista já receberam mensagens anteriormente');
+        return;
+      }
+
+      console.log(`📤 Enviando mensagens para ${leadsToSend.length} leads (${generatedLeads.length - leadsToSend.length} já enviadas anteriormente)...`);
+
+      let successCount = 0;
+      let errorCount = 0;
+
+      for (const lead of leadsToSend) {
+        try {
+          const personalizedMessage = customMessage
+            .replace('{segmento}', lead.segmento)
+            .replace('{cidade}', lead.cidade);
+
+          const result = await zapiService.sendTextMessage(lead.numero, personalizedMessage);
+
+          if (result.success) {
+            successCount++;
+            addSentMessage(lead.numero, personalizedMessage);
+            console.log(`✅ Mensagem enviada para ${lead.nome} (${lead.numero})`);
+          } else {
+            errorCount++;
+            console.error(`❌ Falha ao enviar para ${lead.nome}:`, result.error);
+          }
+
+          await new Promise(resolve => setTimeout(resolve, 1000));
+
+        } catch (err) {
+          errorCount++;
+          console.error(`❌ Erro ao enviar para ${lead.nome}:`, err);
+        }
+      }
+
+      if (successCount > 0) {
+        const leadsToSave = leadsToSend.slice(0, successCount).map(lead => ({
+          nomenegocio: lead.nome,
+          numero: lead.numero,
+          user_id: user?.id,
+          organization_id: profile?.organization_id
+        }));
+
+        const { error: saveError } = await supabase
+          .from('leadsb2b')
+          .insert(leadsToSave);
+
+        if (saveError) {
+          console.error('❌ Erro ao salvar leads:', saveError);
+        }
+      }
+
+      setSuccess(`✅ Mensagens enviadas: ${successCount} sucesso, ${errorCount} falhas. ${generatedLeads.length - leadsToSend.length} já enviadas anteriormente.`);
+      setShowMessageModal(false);
+      setCustomMessage('');
+      
+      await loadLeadsB2B();
+      setTimeout(() => setSuccess(null), 5000);
+
+    } catch (err) {
+      console.error('❌ Erro no envio em massa:', err);
+      setError(err instanceof Error ? err.message : 'Erro no envio em massa');
+    } finally {
+      setSendingMessages(false);
+    }
+  };
+
+  const saveContact = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      if (!user?.id || !profile?.organization_id) {
+        throw new Error('Usuário ou organização não encontrados');
+      }
+
+      if (selectedContact) {
+        const { error: updateError } = await supabase
+          .from('contacts')
+          .update({
+            ...contactForm,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', selectedContact.id)
+          .eq('organization_id', profile.organization_id);
+
+        if (updateError) {
+          throw updateError;
+        }
+
+        setSuccess('Contato atualizado com sucesso!');
+      } else {
+        const { error: saveError } = await supabase
+          .from('contacts')
+          .insert({
+            ...contactForm,
+            organization_id: profile.organization_id,
+            status: 'active'
+          });
+
+        if (saveError) {
+          throw saveError;
+        }
+
+        setSuccess('Contato salvo com sucesso!');
+      }
+
+      setShowContactModal(false);
+      setSelectedContact(null);
+      setContactForm({ name: '', phone_number: '', email: '', location: '', tags: [] });
+      await loadContacts();
+      setTimeout(() => setSuccess(null), 3000);
+
+    } catch (err) {
+      console.error('❌ Erro ao salvar contato:', err);
+      setError(err instanceof Error ? err.message : 'Erro ao salvar contato');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const deleteContact = async (contactId: string) => {
+    if (!confirm('Tem certeza que deseja excluir este contato?')) {
+      return;
+    }
+
+    try {
+      setError(null);
+
+      const { error: deleteError } = await supabase
+        .from('contacts')
+        .delete()
+        .eq('id', contactId)
+        .eq('organization_id', profile?.organization_id);
+
+      if (deleteError) {
+        throw deleteError;
+      }
+
+      setSuccess('Contato excluído com sucesso!');
+      await loadContacts();
+      setTimeout(() => setSuccess(null), 3000);
+
+    } catch (err) {
+      console.error('❌ Erro ao excluir contato:', err);
+      setError(err instanceof Error ? err.message : 'Erro ao excluir contato');
+    }
+  };
+
+  const openEditContactModal = (contact: Contact) => {
+    setSelectedContact(contact);
+    setContactForm({
+      name: contact.name || '',
+      phone_number: contact.phone_number,
+      email: contact.email || '',
+      location: contact.location || '',
+      tags: contact.tags || []
+    });
+    setShowContactModal(true);
+  };
+
+  const openNewContactModal = () => {
+    setSelectedContact(null);
+    setContactForm({ name: '', phone_number: '', email: '', location: '', tags: [] });
+    setShowContactModal(true);
+  };
+
+  const openMessageModal = () => {
+    setCustomMessage(`Olá! Somos da {empresa} e identificamos que seu negócio "{nome}" em {cidade} pode se beneficiar muito dos nossos serviços de {segmento}. 
+
+Gostaríamos de apresentar uma solução que pode revolucionar seus resultados. Tem alguns minutos para conversarmos?
+
+Atenciosamente,
+Equipe Comercial`);
+    setShowMessageModal(true);
+  };
+
+  const filteredContacts = contacts.filter(contact => {
+    if (!searchTerm.trim()) return true;
+    
+    const searchLower = searchTerm.toLowerCase();
+    return (
+      (contact.name || '').toLowerCase().includes(searchLower) ||
+      contact.phone_number.toLowerCase().includes(searchLower) ||
+      (contact.email || '').toLowerCase().includes(searchLower) ||
+      (contact.location || '').toLowerCase().includes(searchLower)
+    );
+  });
+
+  // Filtrar leads por termo de busca
+  const leadsFiltered = leadsB2B.filter(lead => {
+    if (!searchTerm.trim()) return true;
+    
+    const searchLower = searchTerm.toLowerCase();
+    const nomenegocio = (lead.nomenegocio || '').toLowerCase();
+    const numero = (lead.numero || '').toLowerCase();
+    
+    return nomenegocio.includes(searchLower) || numero.includes(searchLower);
+  });
+
+  // Formatar número de telefone
+  const formatPhoneNumber = (phone: string): string => {
+    if (!phone) return '';
+    
+    const clean = phone.replace(/\D/g, '');
+    if (clean.length >= 10) {
+      const countryCode = clean.substring(0, 2);
+      const areaCode = clean.substring(2, 4);
+      const firstPart = clean.substring(4, clean.length - 4);
+      const lastPart = clean.substring(clean.length - 4);
+      return `+${countryCode} (${areaCode}) ${firstPart}-${lastPart}`;
+    }
+    return phone;
+  };
+
+  // Abrir WhatsApp com lead
+  const openWhatsAppWithLead = (lead: any) => {
+    const phoneNumber = lead.numero.replace(/\D/g, '');
+    const message = encodeURIComponent(`Olá ${lead.nomenegocio}! Tudo bem? Sou da Atendos IA e gostaria de apresentar nossa solução de atendimento automatizado que pode revolucionar o atendimento da sua empresa. Posso te contar mais?`);
+    const whatsappUrl = `https://wa.me/${phoneNumber}?text=${message}`;
+    window.open(whatsappUrl, '_blank');
+  };
+
   const quickSuggestions = [
-    'Buscar clínicas de odonto em São Paulo',
-    'Encontrar restaurantes em Belo Horizonte',
-    'Localizar farmácias no Rio de Janeiro',
-    'Buscar escritórios de advocacia em Brasília',
-    'Encontrar academias em Curitiba',
-    'Localizar pet shops em Salvador'
+    'Busque 50 restaurantes em São Paulo, priorize números de telefone',
+    'Encontre 100 clínicas em Rio de Janeiro com contato',
+    'Procure 200 lojas em Belo Horizonte, foque em telefones',
+    'Busque academias em Brasília com números válidos',
+    'Encontre escritórios em Porto Alegre, priorize contatos',
+    'Liste empresas de tecnologia em Florianópolis com telefone'
   ];
 
-  const formatPhoneNumber = (numero: string) => {
-    // Formatar número de telefone brasileiro
-    const cleaned = numero.replace(/\D/g, '');
+  // Filtrar leads salvos
+  const savedLeadsFiltered = savedLeads.filter(lead => {
+    if (!searchTerm.trim()) return true;
     
-    if (cleaned.length === 11) {
-      // Celular: (XX) 9XXXX-XXXX
-      return `(${cleaned.slice(0, 2)}) ${cleaned.slice(2, 7)}-${cleaned.slice(7)}`;
-    } else if (cleaned.length === 10) {
-      // Fixo: (XX) XXXX-XXXX
-      return `(${cleaned.slice(0, 2)}) ${cleaned.slice(2, 6)}-${cleaned.slice(6)}`;
-    } else if (cleaned.length === 13 && cleaned.startsWith('55')) {
-      // Com código do país: +55 (XX) 9XXXX-XXXX
-      return `+55 (${cleaned.slice(2, 4)}) ${cleaned.slice(4, 9)}-${cleaned.slice(9)}`;
-    }
-    
-    return numero; // Retorna original se não conseguir formatar
-  };
+    const searchLower = searchTerm.toLowerCase();
+    return lead.nomenegocio.toLowerCase().includes(searchLower) ||
+           lead.numero.includes(searchTerm);
+  });
 
-  const handleOpenPersonalizedMessageModal = (phoneNumber: string) => {
-    setTargetPhoneNumberForPersonalizedMessage(phoneNumber);
-    setPersonalizedMessageContent(''); // Limpar conteúdo da mensagem anterior
-    setShowPersonalizedMessageModal(true);
-  };
-
-  const handleSaveCompaniesToContacts = async () => {
-    console.log('handleSaveCompaniesToContacts called. Current profile:', profile); // Log de depuração
-    if (!profile || !profile.id || !profile.organization_id) { // Verificação explícita
-      setError('Perfil do usuário não carregado ou incompleto. Por favor, aguarde ou recarregue a página.');
+  const sendCustomMessage = async () => {
+    if (!customMessage.trim()) {
+      setError('Digite uma mensagem para enviar');
       return;
     }
 
-    if (detectedCompanyData.length === 0) {
-      setError('Nenhum dado de empresa detectado para salvar.');
+    if (!selectedLead) {
+      setError('Nenhum lead selecionado');
       return;
     }
 
-    if (!user?.id || !profile?.organization_id) {
-      setError('Usuário não autenticado ou organização não encontrada.');
+    if (!zapiService.isConfigured()) {
+      setError('Z-API não configurada. Configure em Configurações > Integração Z-API');
       return;
     }
-
-    setSavingToContacts(true);
-    setError(null);
-    setSuccess(null);
-
-    let savedCount = 0;
-    let failedCount = 0;
-    const errors: string[] = [];
 
     try {
-      for (const company of detectedCompanyData) {
-        try {
-          console.log(`💾 Salvando empresa: ${company.name} - ${company.phone}`);
-          
-          // Verificar se a empresa já existe para este usuário/organização
-          const { data: existingLead, error: checkError } = await supabase
-            .from('leadsb2b')
-            .select('id')
-            .eq('user_id', user.id)
-            .eq('organization_id', profile.organization_id)
-            .eq('numero', company.phone)
-            .maybeSingle();
+      setSendingMessage(true);
+      setError(null);
 
-          if (checkError && checkError.code !== 'PGRST116') {
-            throw checkError;
-          }
-
-          if (existingLead) {
-            console.log(`⚠️ Empresa ${company.name} já existe nos contatos`);
-            errors.push(`${company.name}: Já existe nos contatos`);
-            failedCount++;
-            continue;
-          }
-
-          // Inserir nova empresa
-          const { error: insertError } = await supabase
-            .from('leadsb2b')
-            .insert({
-              nomenegocio: company.name,
-              numero: company.phone,
-              user_id: user.id,
-              organization_id: profile.organization_id
-            });
-
-          if (insertError) {
-            throw insertError;
-          }
-
-          savedCount++;
-          console.log(`✅ Empresa ${company.name} salva com sucesso`);
-        } catch (err) {
-          failedCount++;
-          const errorMsg = err instanceof Error ? err.message : 'Erro desconhecido';
-          errors.push(`${company.name}: ${errorMsg}`);
-          console.error(`❌ Erro ao salvar empresa ${company.name}:`, err);
-        }
-      }
-
-      // Atualizar lista de contatos após salvar
-      if (savedCount > 0) {
-        await fetchContacts();
-      }
-
-      // Mostrar resultado
-      if (savedCount > 0) {
-        setSuccess(`✅ ${savedCount} empresa(s) adicionada(s) aos contatos com sucesso! ${failedCount > 0 ? `${failedCount} falha(s).` : ''}`);
-      } else {
-        setError(`Nenhuma empresa foi adicionada. ${errors.length > 0 ? errors.join(', ') : ''}`);
-      }
-
-      setTimeout(() => {
-        setSuccess(null);
-        setError(null);
-      }, 5000);
-
-    } catch (err) {
-      console.error('❌ Erro geral ao salvar empresas:', err);
-      setError(err instanceof Error ? err.message : 'Erro desconhecido ao salvar empresas.');
-    } finally {
-      setSavingToContacts(false);
-    }
-  };
-
-  const handleSendAllPersonalizedMessage = async () => {
-    if (!personalizedMessageContent.trim()) {
-      setError('A mensagem não pode estar vazia.');
-      return;
-    }
-
-    if (!isZAPIConfigured || !isConnected) {
-      setError('Z-API não configurada ou desconectada. Verifique a aba "Número WhatsApp".');
-      return;
-    }
-
-    setIsSendingBulk(true); // Reutilizando o estado de loading para envio
-    setError(null);
-    setSuccess(null);
-
-    let sentCount = 0;
-    let failedCount = 0;
-    const errors: string[] = [];
-
-    for (const number of detectedPhoneNumbers) {
-      try {
-        console.log(`📤 Enviando mensagem para TODOS para ${number}...`);
-        const result = await zapiService.sendTextMessage(number, personalizedMessageContent.trim());
-
-        if (result.success) {
-          sentCount++;
-        } else {
-          failedCount++;
-          errors.push(`Falha para ${formatPhoneNumber(number)}: ${result.error || 'Erro desconhecido'}`);
-        }
-      } catch (err) {
-        failedCount++;
-        errors.push(`Exceção para ${formatPhoneNumber(number)}: ${err instanceof Error ? err.message : 'Erro desconhecido'}`);
-      }
-    }
-
-    setBulkSendResult({ sent: sentCount, failed: failedCount, total: detectedPhoneNumbers.length, errors });
-    setSuccess(`✅ Mensagens enviadas para ${sentCount} de ${detectedPhoneNumbers.length} números. ${failedCount > 0 ? `${failedCount} falha(s).` : ''}`);
-    setShowSendAllPersonalizedMessageModal(false);
-    setPersonalizedMessageContent('');
-    setTimeout(() => setSuccess(null), 5000); // Manter a mensagem de sucesso por mais tempo
-    setIsSendingBulk(false);
-  };
-
-  const handleSendPersonalizedMessage = async () => {
-    if (!targetPhoneNumberForPersonalizedMessage || !personalizedMessageContent.trim()) {
-      setError('Número e mensagem são obrigatórios.');
-      return;
-    }
-
-    if (!isZAPIConfigured || !isConnected) {
-      setError('Z-API não configurada ou desconectada. Verifique a aba "Número WhatsApp".');
-      return;
-    }
-
-    setIsSendingBulk(true); // Reutilizando o estado de loading para envio
-    setError(null);
-    setSuccess(null);
-
-    try {
-      console.log(`📤 Enviando mensagem personalizada para ${targetPhoneNumberForPersonalizedMessage}...`);
-      const result = await zapiService.sendTextMessage(targetPhoneNumberForPersonalizedMessage, personalizedMessageContent.trim());
+      const result = await zapiService.sendTextMessage(selectedLead.numero, customMessage);
 
       if (result.success) {
-        setSuccess(`✅ Mensagem enviada para ${formatPhoneNumber(targetPhoneNumberForPersonalizedMessage)} com sucesso!`);
-        setShowPersonalizedMessageModal(false);
-        setPersonalizedMessageContent('');
-        setTargetPhoneNumberForPersonalizedMessage('');
+        setSuccess('Mensagem enviada com sucesso!');
+        addSentMessage(selectedLead.numero, customMessage);
+        setShowMessageModal(false);
+        setSelectedLead(null);
+        setCustomMessage('');
         setTimeout(() => setSuccess(null), 3000);
       } else {
-        throw new Error(result.error || 'Falha ao enviar mensagem via Z-API.');
+        throw new Error(result.error || 'Erro ao enviar mensagem');
       }
+
     } catch (err) {
-      console.error('❌ Erro ao enviar mensagem personalizada:', err);
-      setError(err instanceof Error ? err.message : 'Erro desconhecido ao enviar mensagem.');
+      console.error('❌ Erro ao enviar mensagem:', err);
+      setError(err instanceof Error ? err.message : 'Erro ao enviar mensagem');
     } finally {
-      setIsSendingBulk(false);
+      setSendingMessage(false);
     }
   };
 
-  // Função para detectar dados de empresas na resposta da IA
-  const detectCompanyData = (responseText: string): Array<{name: string, phone: string}> => {
-    console.log('🔍 DETECTANDO DADOS DE EMPRESAS NA RESPOSTA:');
-    console.log('📄 Texto da resposta:', responseText);
-    
-    const detected: Array<{name: string, phone: string}> = [];
-    const lines = responseText.split('\n');
-    
-    // Regex para detectar números de telefone brasileiros
-    const phoneRegex = /\+55\s*\d{2}\s*\d{4,5}[-\s]?\d{4}/g;
-    
-    // Mapa para armazenar nomes de empresas por linha
-    const companyNames: { [lineIndex: number]: string } = {};
-    
-    console.log('📋 Processando', lines.length, 'linhas...');
-    
-    // PASSO 1: Detectar nomes de empresas nas linhas numeradas
-    lines.forEach((line, lineIndex) => {
-      const trimmedLine = line.trim();
-      console.log(`📝 Linha ${lineIndex + 1}:`, trimmedLine);
-      
-      // Verificar se é uma linha numerada (1., 2., 3., etc.)
-      const listMatch = trimmedLine.match(/^(\d+)\.\s*(.+)$/);
-      if (listMatch) {
-        const itemNumber = listMatch[1];
-        const nameAfterNumber = listMatch[2].trim();
-        console.log(`🏢 Item ${itemNumber} detectado:`, nameAfterNumber);
-        
-        // Limpar o nome (remover tudo após hífen, parênteses, etc.)
-        let companyName = nameAfterNumber;
-        
-        // Remover tudo após " - " (endereço, descrições)
-        if (companyName.includes(' - ')) {
-          companyName = companyName.split(' - ')[0].trim();
-        }
-        
-        // Remover tudo após " (" (informações extras)
-        if (companyName.includes(' (')) {
-          companyName = companyName.split(' (')[0].trim();
-        }
-        
-        // Remover tudo após "," (vírgulas com informações extras)
-        if (companyName.includes(',')) {
-          companyName = companyName.split(',')[0].trim();
-        }
-        
-        console.log(`🧹 Nome da empresa limpo:`, companyName);
-        
-        // Validar se é um nome de empresa válido
-        if (companyName.length >= 2 && companyName.length <= 100 && 
-            !companyName.toLowerCase().includes('telefone') &&
-            !companyName.toLowerCase().includes('endereço') &&
-            !/^\d+$/.test(companyName)) {
-          companyNames[lineIndex] = companyName;
-          console.log(`✅ Nome de empresa válido armazenado para linha ${lineIndex + 1}:`, companyName);
-        } else {
-          console.log(`❌ Nome rejeitado como inválido:`, companyName);
-        }
-      }
-    });
-    
-    console.log('📊 Nomes de empresas detectados:', companyNames);
-    
-    // PASSO 2: Detectar telefones e associar com nomes de empresas
-    lines.forEach((line, lineIndex) => {
-      const trimmedLine = line.trim();
-      
-      // Procurar telefones nesta linha
-      const phoneMatches = trimmedLine.match(phoneRegex);
-      if (phoneMatches) {
-        phoneMatches.forEach(phoneMatch => {
-          console.log(`📞 Telefone detectado na linha ${lineIndex + 1}:`, phoneMatch);
-          
-          // Limpar telefone
-          const cleanPhone = phoneMatch.replace(/\D/g, '');
-          console.log(`🧹 Telefone limpo:`, cleanPhone);
-          
-          // Procurar o nome da empresa mais próximo (nas linhas anteriores)
-          let companyName = '';
-          
-          // Procurar da linha atual para trás até encontrar um nome de empresa
-          for (let i = lineIndex; i >= 0; i--) {
-            if (companyNames[i]) {
-              companyName = companyNames[i];
-              console.log(`✅ Nome da empresa encontrado na linha ${i + 1}:`, companyName);
-              break;
-            }
-          }
-          
-          // Só adicionar se encontramos um nome de empresa válido
-          if (companyName) {
-            // Verificar se já existe (evitar duplicatas)
-            const isDuplicate = detected.some(item => item.phone === cleanPhone);
-            if (!isDuplicate) {
-              detected.push({ name: companyName, phone: cleanPhone });
-              console.log(`✅ EMPRESA ADICIONADA: ${companyName} - ${cleanPhone}`);
-            } else {
-              console.log(`⚠️ Duplicata ignorada:`, companyName, cleanPhone);
-            }
-          } else {
-            console.log(`❌ Telefone ignorado (sem nome de empresa):`, cleanPhone);
-          }
-        });
-      }
-    });
-    
-    console.log('🎯 RESULTADO FINAL:', detected);
-    return detected;
-  };
-
-  const filteredContacts = contacts.filter(contact =>
-    contact.nomenegocio.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    contact.numero.includes(searchTerm)
-  );
-
-  if (authLoading || loading) {
+  if (loading && activeTab === 'contacts') {
     return (
       <div className="flex items-center justify-center py-12">
         <div className="w-8 h-8 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
-        <span className="ml-2 text-gray-600 dark:text-gray-400">Carregando contatos...</span>
+        <span className="ml-2 text-gray-600 dark:text-gray-400">Carregando...</span>
       </div>
     );
   }
@@ -758,576 +967,748 @@ const Contacts: React.FC = () => {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Contatos B2B</h1>
+        <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Leadsgen</h1>
         <div className="flex space-x-3">
-       
-
+          <button 
+            onClick={activeTab === 'contacts' ? loadContacts : loadLeadsB2B}
+            disabled={loading}
+            className="flex items-center space-x-2 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-gray-700 dark:text-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
+            <span>{loading ? 'Atualizando...' : 'Atualizar'}</span>
+          </button>
           {activeTab === 'contacts' && (
-            <button
-              onClick={() => setShowBulkMessageModal(true)}
-              disabled={!isConnected || !isZAPIConfigured || contacts.length === 0}
-              className="flex items-center space-x-2 px-4 py-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            <button 
+              onClick={openNewContactModal}
+              className="flex items-center space-x-2 px-4 py-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition-colors"
             >
-              <Send className="w-5 h-5" />
-              <span>Enviar Mensagem para Todos</span>
-            </button>
-          )}
-
-          {activeTab === 'contacts' && (
-            <button
-              onClick={handleRefresh}
-              disabled={loading}
-              className="flex items-center space-x-2 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
-              <span>Atualizar</span>
-            </button>
-          )}
-          
-          {activeTab === 'contacts' && (
-            <button
-              onClick={handleExportContacts}
-              disabled={contacts.length === 0}
-              className="flex items-center space-x-2 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Download className="w-5 h-5" />
-              <span>Exportar CSV</span>
+              <Plus className="w-5 h-5" />
+              <span>Novo Contato</span>
             </button>
           )}
         </div>
       </div>
 
-      {/* Tab Navigation */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
-        <div className="flex border-b border-gray-200 dark:border-gray-700">
-          <button
-            onClick={() => setActiveTab('contacts')}
-            className={`flex items-center space-x-2 px-6 py-4 text-sm font-medium transition-colors ${
-              activeTab === 'contacts'
-                ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 border-b-2 border-blue-500'
-                : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
-            }`}
-          >
-            <Users className="w-5 h-5" />
-            <span>Contatos ({contacts.length})</span>
-          </button>
-          <button
-            onClick={() => setActiveTab('generate-leads')}
-            className={`flex items-center space-x-2 px-6 py-4 text-sm font-medium transition-colors ${
-              activeTab === 'generate-leads'
-                ? 'bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 border-b-2 border-purple-500'
-                : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
-            }`}
-          >
-            <Sparkles className="w-5 h-5" />
-            <span>Gerar Leads</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Success/Error Messages */}
-      {success && (
-        <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
-          <div className="flex items-center space-x-2">
-            <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400" />
-            <p className="text-green-700 dark:text-green-300">{success}</p>
-          </div>
-        </div>
-      )}
-
+      {/* Error/Success Messages */}
       {error && (
         <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
-          <div className="flex items-center space-x-2">
-            <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400" />
-            <p className="text-red-700 dark:text-red-300">{error}</p>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400" />
+              <p className="text-red-700 dark:text-red-300">{error}</p>
+            </div>
+            <button 
+              onClick={() => setError(null)}
+              className="text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300"
+            >
+              <X className="w-5 h-5" />
+            </button>
           </div>
         </div>
       )}
 
-      {/* Content based on active tab */}
-      {activeTab === 'contacts' ? (
-        <>
-          {/* Search and Stats */}
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-            <div className="flex flex-col md:flex-row md:items-center justify-between space-y-4 md:space-y-0">
+      {success && (
+        <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400" />
+              <p className="text-green-700 dark:text-green-300">{success}</p>
+            </div>
+            <button 
+              onClick={() => setSuccess(null)}
+              className="text-green-600 dark:text-green-400 hover:text-green-800 dark:hover:text-green-300"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Tabs */}
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
+        <div className="border-b border-gray-200 dark:border-gray-700">
+          <nav className="flex space-x-8 px-6">
+            <button
+              onClick={() => setActiveTab('contacts')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                activeTab === 'contacts'
+                  ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+              }`}
+            >
+              <div className="flex items-center space-x-2">
+                <Users className="w-4 h-4" />
+                <span>Contatos ({leadsFiltered.length})</span>
+              </div>
+            </button>
+            <button
+              onClick={() => setActiveTab('leads-generator')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                activeTab === 'leads-generator'
+                  ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+              }`}
+            >
+              <div className="flex items-center space-x-2">
+                <Sparkles className="w-4 h-4" />
+                <span>Gerador de Leads IA</span>
+                <span className="bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 text-xs px-2 py-1 rounded-full">
+                  {leadsB2B.length}
+                </span>
+              </div>
+            </button>
+          </nav>
+        </div>
+
+        <div className="p-6">
+          {activeTab === 'contacts' ? (
+            <div className="space-y-6">
+              {/* Header com busca */}
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+                    Leads B2B Salvos ({leadsFiltered.length})
+                  </h2>
+                  <p className="text-gray-600 dark:text-gray-400 text-sm">
+                    Leads gerados e salvos na sua base de dados
+                  </p>
+                </div>
+                <button
+                  onClick={loadLeadsB2B}
+                  disabled={loadingLeads}
+                  className="flex items-center space-x-2 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-gray-700 dark:text-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <RefreshCw className={`w-5 h-5 ${loadingLeads ? 'animate-spin' : ''}`} />
+                  <span>Atualizar</span>
+                </button>
+              </div>
+
+              {/* Busca */}
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-gray-500 w-4 h-4" />
                 <input
                   type="text"
-                  placeholder="Buscar por nome do negócio ou número..."
+                  placeholder="Buscar por nome do negócio ou telefone..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10 pr-4 py-2 w-80 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
+                  className="pl-10 pr-4 py-2 w-full border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
                 />
               </div>
-              
-              <div className="flex items-center space-x-6 text-sm text-gray-600 dark:text-gray-400">
-                <div className="flex items-center space-x-2">
-                  <Users className="w-4 h-4" />
-                  <span>Total: {contacts.length} contatos</span>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <Filter className="w-4 h-4" />
-                  <span>Filtrados: {filteredContacts.length}</span>
-                </div>
-              </div>
-            </div>
-          </div>
 
-          {/* Contacts Table */}
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
-            {filteredContacts.length > 0 ? (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead className="bg-gray-50 dark:bg-gray-700">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                        Nome do Negócio
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                        Número de Telefone
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                        Ações
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                    {filteredContacts.map((contact, index) => (
-                      <tr key={`${contact.numero}-${index}`} className="hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                        <td className="px-6 py-4">
+              {/* Lista de Leads */}
+              <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
+                {loadingLeads ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
+                    <span className="ml-2 text-gray-600 dark:text-gray-400">Carregando leads...</span>
+                  </div>
+                ) : leadsFiltered.length > 0 ? (
+                  <div className="divide-y divide-gray-200 dark:divide-gray-700">
+                    {leadsFiltered.map((lead) => (
+                      <div key={lead.id} className="p-4 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                        <div className="flex items-center justify-between">
                           <div className="flex items-center space-x-3">
-                            <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center">
-                              <Building className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                            <div className="w-10 h-10 bg-indigo-100 dark:bg-indigo-900/30 rounded-full flex items-center justify-center">
+                              <Building className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
                             </div>
                             <div>
-                              <div className="text-sm font-medium text-gray-900 dark:text-white">
-                                {contact.nomenegocio}
-                              </div>
-                              <div className="text-sm text-gray-500 dark:text-gray-400">
-                                Contato B2B
+                              <h3 className="font-medium text-gray-900 dark:text-white">
+                                {lead.nomenegocio}
+                              </h3>
+                              <div className="flex items-center space-x-4 text-sm text-gray-600 dark:text-gray-400">
+                                <div className="flex items-center space-x-1">
+                                  <Phone className="w-4 h-4" />
+                                  <span>{formatPhoneNumber(lead.numero)}</span>
+                                </div>
+                                <div className="flex items-center space-x-1">
+                                  <Calendar className="w-4 h-4" />
+                                  <span>{new Date(lead.created_at).toLocaleDateString('pt-BR')}</span>
+                                </div>
                               </div>
                             </div>
                           </div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex items-center space-x-2">
-                            <Phone className="w-4 h-4 text-gray-400 dark:text-gray-500" />
-                            <span className="text-sm text-gray-900 dark:text-white font-mono">
-                              {formatPhoneNumber(contact.numero)}
-                            </span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                          <div className="flex items-center justify-end space-x-2">
-                            <a
-                              href={`https://wa.me/${contact.numero.replace(/\D/g, '')}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-green-600 dark:text-green-400 hover:text-green-800 dark:hover:text-green-300 p-2 rounded-lg hover:bg-green-50 dark:hover:bg-green-900/20 transition-colors"
-                              title="Abrir no WhatsApp"
-                            >
-                              <Phone className="w-4 h-4" />
-                            </a>
-                          </div>
-                        </td>
-                      </tr>
+                          
+                          <button
+                            onClick={() => {
+                              setSelectedLead(lead);
+                              setCustomMessage(`Olá ${lead.nomenegocio}! Tudo bem? Sou da Atendos IA e gostaria de apresentar nossa solução de atendimento automatizado que pode revolucionar o atendimento da sua empresa. Posso te contar mais?`);
+                              setShowMessageModal(true);
+                            }}
+                            className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300"
+                            title="Enviar mensagem personalizada"
+                          >
+                            <MessageSquare className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
                     ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div className="text-center py-12">
-                <Users className="w-16 h-16 text-gray-300 dark:text-gray-600 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
-                  {searchTerm ? 'Nenhum contato encontrado' : 'Nenhum contato B2B disponível'}
-                </h3>
-                <p className="text-gray-500 dark:text-gray-400 mb-6">
-                  {searchTerm 
-                    ? 'Tente ajustar sua busca ou limpar o filtro.'
-                    : 'Os contatos B2B aparecerão aqui quando forem adicionados à tabela leadsb2b.'}
-                </p>
-                {searchTerm && (
-                  <button
-                    onClick={() => setSearchTerm('')}
-                    className="inline-flex items-center space-x-2 px-4 py-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition-colors"
-                  >
-                    <Filter className="w-5 h-5" />
-                    <span>Limpar Filtro</span>
-                  </button>
+                  </div>
+                ) : (
+                  <div className="text-center py-12">
+                    <Users className="w-12 h-12 text-gray-400 dark:text-gray-500 mx-auto mb-4" />
+                    <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
+                      {searchTerm ? 'Nenhum lead encontrado' : 'Nenhum lead salvo ainda'}
+                    </h3>
+                    <p className="text-gray-500 dark:text-gray-400">
+                      {searchTerm 
+                        ? 'Tente ajustar sua busca ou gerar novos leads'
+                        : 'Use o Gerador de Leads para criar e salvar leads B2B'
+                      }
+                    </p>
+                  </div>
                 )}
               </div>
-            )}
-          </div>
-
-          {/* Quick Stats */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total de Contatos</p>
-                  <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">{contacts.length}</p>
-                </div>
-                <div className="w-12 h-12 bg-blue-500 rounded-lg flex items-center justify-center">
-                  <Users className="w-6 h-6 text-white" />
-                </div>
-              </div>
             </div>
-
-            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Contatos Filtrados</p>
-                  <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">{filteredContacts.length}</p>
-                </div>
-                <div className="w-12 h-12 bg-green-500 rounded-lg flex items-center justify-center">
-                  <Filter className="w-6 h-6 text-white" />
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Números Únicos</p>
-                  <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">
-                    {new Set(contacts.map(c => c.numero)).size}
-                  </p>
-                </div>
-                <div className="w-12 h-12 bg-purple-500 rounded-lg flex items-center justify-center">
-                  <Phone className="w-6 h-6 text-white" />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Info Card */}
-          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-6">
-            <h3 className="text-lg font-semibold text-blue-900 dark:text-blue-100 mb-4">📋 Sobre os Contatos B2B</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <h4 className="font-medium text-blue-800 dark:text-blue-200 mb-2">Funcionalidades:</h4>
-                <ul className="text-sm text-blue-700 dark:text-blue-400 space-y-1">
-                  <li>• Visualização de todos os contatos B2B</li>
-                  <li>• Busca por nome do negócio ou número</li>
-                </ul>
-              </div>
-            </div>
-            
-            {sheetsConnected && (
-              <div className="mt-4 p-3 bg-green-100 dark:bg-green-800/30 rounded-lg">
-                <p className="text-sm text-green-800 dark:text-green-200">
-                  <strong>✅ Google Sheets Conectado:</strong> Agora você pode exportar seus contatos diretamente para planilhas do Google Sheets com um clique!
-                </p>
-              </div>
-            )}
-          </div>
-        </>
-      ) : (
-        /* Lead Generation Chat Interface */
-        <div className="h-full flex flex-col bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
-          {/* Header */}
-          <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20">
-            <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 bg-gradient-to-r from-purple-500 to-pink-600 rounded-full flex items-center justify-center">
-                <Sparkles className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <h1 className="text-lg font-semibold text-gray-900 dark:text-white">Gerador de Leads B2B</h1>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  {isTyping ? 'Gerando leads...' : isGeneratingLeads ? 'Processando...' : 'Pronto para ajudar'}
-                </p>
-              </div>
-            </div>
-            
-            <div className="flex items-center space-x-2">
-              <button
-                onClick={() => setLeadMessages([leadMessages[0]])}
-                className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-                title="Limpar conversa"
-              >
-                <RefreshCw className="w-5 h-5" />
-              </button>
-            </div>
-          </div>
-
-          {/* Messages Area */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            {leadMessages.map((message) => (
-              <div
-                key={message.id}
-                className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}
-              >
-                <div className={`flex items-start space-x-3 max-w-[80%] ${
-                  message.sender === 'user' ? 'flex-row-reverse space-x-reverse' : ''
-                }`}>
-                  {/* Avatar */}
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
-                    message.sender === 'user' 
-                      ? 'bg-blue-500' 
-                      : 'bg-gradient-to-r from-purple-500 to-pink-600'
-                  }`}>
-                    {message.sender === 'user' ? (
-                      <Users className="w-4 h-4 text-white" />
-                    ) : (
-                      <Sparkles className="w-4 h-4 text-white" />
-                    )}
+          ) : (
+            /* Gerador de Leads IA - Interface ChatGPT */
+            <div className="h-[600px] flex flex-col bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+              {/* Header */}
+              <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-900/20 dark:to-purple-900/20">
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-full flex items-center justify-center">
+                    <Sparkles className="w-6 h-6 text-white" />
                   </div>
-
-                  {/* Message Bubble */}
-                  <div className={`rounded-2xl px-4 py-3 ${
-                    message.sender === 'user'
-                      ? 'bg-blue-500 text-white'
-                      : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white border border-gray-200 dark:border-gray-600'
-                  }`}>
-                    <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
-                    <p className={`text-xs mt-2 ${
-                      message.sender === 'user' 
-                        ? 'text-blue-100' 
-                        : 'text-gray-500 dark:text-gray-400'
-                    }`}>
-                      {formatTime(message.timestamp)}
-                      {message.sender === 'assistant' && <span className="ml-2 font-medium">IA</span>}
+                  <div>
+                    <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Gerador de Leads IA</h2>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                      {isTyping ? 'Gerando leads...' : isGenerating ? 'Processando...' : 'Online'}
                     </p>
                   </div>
                 </div>
+                
+                <div className="flex items-center space-x-2">
+                  {generatedLeads.length > 0 && (
+                    <button
+                      onClick={openMessageModal}
+                      className="flex items-center space-x-2 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors text-sm"
+                    >
+                      <Send className="w-4 h-4" />
+                      <span>Enviar Mensagens ({generatedLeads.filter(lead => !hasMessageBeenSent(lead.numero)).length})</span>
+                    </button>
+                  )}
+                </div>
               </div>
-            ))}
 
-            {/* Typing Indicator */}
-            {isTyping && (
-              <div className="flex justify-start">
-                <div className="flex items-start space-x-3 max-w-[80%]">
-                  <div className="w-8 h-8 rounded-full bg-gradient-to-r from-purple-500 to-pink-600 flex items-center justify-center flex-shrink-0">
-                    <Sparkles className="w-4 h-4 text-white" />
-                  </div>
-                  <div className="bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-2xl px-4 py-3">
-                    <div className="flex space-x-1">
-                      <div className="w-2 h-2 bg-gray-400 dark:bg-gray-500 rounded-full animate-bounce"></div>
-                      <div className="w-2 h-2 bg-gray-400 dark:bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                      <div className="w-2 h-2 bg-gray-400 dark:bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+              {/* Messages Area */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                {chatMessages.map((message) => (
+                  <div
+                    key={message.id}
+                    className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}
+                  >
+                    <div className={`flex items-start space-x-3 max-w-[80%] ${
+                      message.sender === 'user' ? 'flex-row-reverse space-x-reverse' : ''
+                    }`}>
+                      {/* Avatar */}
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+                        message.sender === 'user' 
+                          ? 'bg-indigo-500' 
+                          : 'bg-gradient-to-r from-indigo-500 to-purple-600'
+                      }`}>
+                        {message.sender === 'user' ? (
+                          <User className="w-4 h-4 text-white" />
+                        ) : (
+                          <Sparkles className="w-4 h-4 text-white" />
+                        )}
+                      </div>
+
+                      {/* Message Bubble */}
+                      <div className={`rounded-2xl px-4 py-3 ${
+                        message.sender === 'user'
+                          ? 'bg-indigo-500 text-white'
+                          : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white border border-gray-200 dark:border-gray-600'
+                      }`}>
+                        <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
+                        
+                        {/* Ações de contatos */}
+                        {message.showContactActions && extractedContacts.length > 0 && (
+                          <div className="mt-4 space-y-2">
+                            <button
+                              onClick={() => setShowContactsModal(true)}
+                              className="w-full px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors text-sm"
+                            >
+                              Ver Contatos Encontrados ({extractedContacts.length})
+                            </button>
+                          </div>
+                        )}
+                        
+                        {/* Mostrar leads gerados se existirem */}
+                        {message.leads && message.leads.length > 0 && (
+                          <div className="mt-3 p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600">
+                            <div className="flex items-center justify-between mb-2">
+                              <h4 className="font-medium text-gray-900 dark:text-white text-sm">
+                                Leads Gerados ({message.leads.length})
+                              </h4>
+                              <span className="text-xs bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 px-2 py-1 rounded-full">
+                                {message.leads.filter(lead => !hasMessageBeenSent(lead.numero)).length} novos
+                              </span>
+                            </div>
+                            <div className="max-h-32 overflow-y-auto space-y-1">
+                              {message.leads.slice(0, 5).map((lead, index) => {
+                                const alreadySent = hasMessageBeenSent(lead.numero);
+                                return (
+                                  <div 
+                                    key={index} 
+                                    className={`text-xs p-2 rounded border ${
+                                      alreadySent 
+                                        ? 'border-orange-200 dark:border-orange-700 bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-300' 
+                                        : 'border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                                    }`}
+                                  >
+                                    <div className="flex items-center justify-between">
+                                      <span className="font-medium">{lead.nome}</span>
+                                      {alreadySent && <span className="text-xs">✓ Enviado</span>}
+                                    </div>
+                                    <div className="text-gray-500 dark:text-gray-400">
+                                      {formatPhoneNumber(lead.numero)} • {lead.cidade}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                              {message.leads.length > 5 && (
+                                <div className="text-xs text-gray-500 dark:text-gray-400 text-center py-1">
+                                  +{message.leads.length - 5} leads adicionais
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                        
+                        <p className={`text-xs mt-2 ${
+                          message.sender === 'user' 
+                            ? 'text-indigo-100' 
+                            : 'text-gray-500 dark:text-gray-400'
+                        }`}>
+                          {formatTime(message.timestamp)}
+                          {message.sender === 'assistant' && <span className="ml-2 font-medium">IA</span>}
+                        </p>
+                      </div>
                     </div>
                   </div>
-                </div>
-              </div>
-            )}
+                ))}
 
-            {/* Quick Suggestions */}
-            {leadMessages.length === 1 && (
-              <div className="space-y-3">
-                <p className="text-sm text-gray-500 dark:text-gray-400 text-center">
-                  Sugestões de busca:
-                </p>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                  {quickSuggestions.map((suggestion, index) => (
-                    <button
-                      key={index}
-                      onClick={() => setLeadInput(suggestion)}
-                      className="text-left p-3 text-sm bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 rounded-lg border border-gray-200 dark:border-gray-600 transition-colors"
-                    >
-                      {suggestion}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Input Area */}
-          <div className="border-t border-gray-200 dark:border-gray-700 p-4 bg-gray-50 dark:bg-gray-900">
-            <div className="flex items-end space-x-3">
-              {/* Message Input */}
-              <div className="flex-1 relative">
-                <textarea
-                  value={leadInput}
-                  onChange={(e) => setLeadInput(e.target.value)}
-                  onKeyPress={handleLeadKeyPress}
-                  placeholder="Digite sua solicitação... Ex: 'Buscar clínicas de odonto em São Paulo'"
-                  rows={1}
-                  className="w-full px-4 py-3 pr-12 border border-gray-300 dark:border-gray-600 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-transparent resize-none bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
-                  style={{ minHeight: '48px', maxHeight: '120px' }}
-                  disabled={isGeneratingLeads}
-                />
-              </div>
-
-              {/* Send Button */}
-              <button
-                onClick={handleSendLeadRequest}
-                disabled={!leadInput.trim() || isGeneratingLeads}
-                className="p-3 bg-gradient-to-r from-purple-500 to-pink-600 text-white rounded-2xl hover:from-purple-600 hover:to-pink-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
-              >
-                {isGeneratingLeads ? (
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                ) : (
-                  <Send className="w-5 h-5" />
+                {/* Typing Indicator */}
+                {isTyping && (
+                  <div className="flex justify-start">
+                    <div className="flex items-start space-x-3 max-w-[80%]">
+                      <div className="w-8 h-8 rounded-full bg-gradient-to-r from-indigo-500 to-purple-600 flex items-center justify-center flex-shrink-0">
+                        <Sparkles className="w-4 h-4 text-white" />
+                      </div>
+                      <div className="bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-2xl px-4 py-3">
+                        <div className="flex space-x-1">
+                          <div className="w-2 h-2 bg-gray-400 dark:bg-gray-500 rounded-full animate-bounce"></div>
+                          <div className="w-2 h-2 bg-gray-400 dark:bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                          <div className="w-2 h-2 bg-gray-400 dark:bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 )}
-              </button>
-            </div>
 
-            {/* Footer */}
-            <div className="mt-3 text-center">
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                Pressione Enter para enviar, Shift + Enter para nova linha
-              </p>
+                {/* Loading Indicator for N8N */}
+                {waitingForLeads && (
+                  <div className="flex justify-center">
+                    <div className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg p-4 max-w-sm">
+                      <div className="flex items-center space-x-2 mb-2">
+                        <div className="w-3 h-3 bg-purple-500 rounded-full animate-pulse"></div>
+                        <span className="text-purple-800 dark:text-purple-300 font-medium">
+                          {waitingForLeads ? 'Buscando leads via N8N...' : 'Processando...'}
+                        </span>
+                      </div>
+                      <div className="text-3xl font-mono text-purple-900 dark:text-purple-100 text-center">
+                        <div className="flex space-x-1 justify-center">
+                          <div className="w-2 h-2 bg-purple-400 dark:bg-purple-500 rounded-full animate-bounce"></div>
+                          <div className="w-2 h-2 bg-purple-400 dark:bg-purple-500 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                          <div className="w-2 h-2 bg-purple-400 dark:bg-purple-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                        </div>
+                      </div>
+                      {waitingForLeads && (
+                        <div className="text-sm text-purple-700 dark:text-purple-400 text-center mt-2">
+                          Conectando com sistema de busca...
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Quick Suggestions */}
+                {chatMessages.length === 1 && (
+                  <div className="space-y-3">
+                    <p className="text-sm text-gray-500 dark:text-gray-400 text-center">
+                      Exemplos de solicitações:
+                    </p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                      {quickSuggestions.map((suggestion, index) => (
+                        <button
+                          key={index}
+                          onClick={() => setInputMessage(suggestion)}
+                          className="text-left p-3 text-sm bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 rounded-lg border border-gray-200 dark:border-gray-600 transition-colors"
+                        >
+                          {suggestion}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div ref={messagesEndRef} />
+              </div>
+
+              {/* Input Area */}
+              <div className="border-t border-gray-200 dark:border-gray-700 p-4 bg-gray-50 dark:bg-gray-900">
+                <div className="flex items-end space-x-3">
+                  {/* Message Input */}
+                  <div className="flex-1 relative">
+                    <textarea
+                      ref={inputRef}
+                      value={inputMessage}
+                      onChange={(e) => setInputMessage(e.target.value)}
+                      onKeyPress={handleKeyPress}
+                      placeholder="Digite sua solicitação... Ex: 'Gere 100 leads de restaurantes em São Paulo'"
+                      rows={1}
+                      className="w-full px-4 py-3 pr-12 border border-gray-300 dark:border-gray-600 rounded-2xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
+                      style={{ minHeight: '48px', maxHeight: '120px' }}
+                      disabled={isGenerating}
+                    />
+                  </div>
+
+                  {/* Send Button */}
+                  <button
+                    onClick={handleSendChatMessage}
+                    disabled={!inputMessage.trim() || isGenerating}
+                    className="p-3 bg-indigo-500 text-white rounded-2xl hover:bg-indigo-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                  >
+                    {isGenerating ? (
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                    ) : (
+                      <Send className="w-5 h-5" />
+                    )}
+                  </button>
+                </div>
+
+                {/* Footer */}
+                <div className="mt-3 text-center">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Pressione Enter para enviar, Shift + Enter para nova linha
+                  </p>
+                </div>
+              </div>
             </div>
-          </div>
+          )}
+
+          {/* Leads B2B Salvos - Sempre visível quando na aba leads-generator */}
+          {activeTab === 'leads-generator' && (
+            <div className="mt-6 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+                Leads B2B Salvos ({leadsB2B.length})
+              </h3>
+              
+              {leadsB2B.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                    <thead className="bg-gray-50 dark:bg-gray-700">
+                      <tr>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                          Nome do Negócio
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                          Número
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                          Data de Criação
+                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                          Ações
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                      {leadsB2B.map((lead) => (
+                        <tr key={lead.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
+                            {lead.nomenegocio}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
+                            {formatPhoneNumber(lead.numero)}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                            {new Date(lead.created_at).toLocaleDateString('pt-BR')}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                            <button
+                              className="text-green-600 dark:text-green-400 hover:text-green-800 dark:hover:text-green-300"
+                              title="Enviar mensagem"
+                            >
+                              <MessageSquare className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="text-center py-12">
+                  <Target className="w-12 h-12 text-gray-400 dark:text-gray-500 mx-auto mb-4" />
+                  <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">Nenhum lead B2B salvo</h3>
+                  <p className="text-gray-500 dark:text-gray-400">Use o gerador acima para criar e enviar mensagens para leads</p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
-      )}
+      </div>
 
-      {showBulkMessageModal && (
+      {/* Modal de Contatos Extraídos */}
+      {showContactsModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white dark:bg-gray-800 rounded-xl p-6 max-w-md w-full mx-4">
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-6 max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-xl font-semibold text-gray-900 dark:text-white">
-                Enviar Mensagem para Todos
+                Contatos Encontrados ({extractedContacts.length})
               </h3>
               <button
-                onClick={() => setShowBulkMessageModal(false)}
+                onClick={() => setShowContactsModal(false)}
                 className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
               >
                 <X className="w-6 h-6" />
               </button>
             </div>
 
-            {bulkSendResult && (
-              <div className={`p-3 rounded-lg mb-4 ${bulkSendResult.failed === 0 ? 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300' : 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300'}`}>
-                <p className="font-medium">Resumo do Envio:</p>
-                <p>Enviadas: {bulkSendResult.sent}/{bulkSendResult.total}</p>
-                <p>Falhas: {bulkSendResult.failed}</p>
-                {bulkSendResult.errors.length > 0 && (
-                  <div className="mt-2 text-xs">
-                    <p className="font-semibold">Erros:</p>
-                    <ul className="list-disc list-inside">
-                      {bulkSendResult.errors.map((err, i) => <li key={i}>{err}</li>)}
-                    </ul>
+            <div className="space-y-4">
+              {/* Botão para enviar para todos */}
+              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="font-medium text-blue-900 dark:text-blue-300">Enviar para Todos</h4>
+                    <p className="text-sm text-blue-700 dark:text-blue-400">
+                      Enviar a mesma mensagem para todos os {extractedContacts.length} contatos
+                    </p>
                   </div>
-                )}
-              </div>
-            )}
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Mensagem
-              </label>
-              <textarea
-                value={bulkMessageContent}
-                onChange={(e) => setBulkMessageContent(e.target.value)}
-                rows={5}
-                className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                placeholder="Digite a mensagem para enviar a todos os contatos..."
-                disabled={isSendingBulk}
-              ></textarea>
-            </div>
-
-            <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200 dark:border-gray-700 mt-6">
-              <button
-                onClick={() => {
-                  setShowBulkMessageModal(false);
-                  setBulkMessageContent('');
-                  setBulkSendResult(null);
-                }}
-                className="px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                disabled={isSendingBulk}
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={handleSendBulkMessage}
-                disabled={!bulkMessageContent.trim() || isSendingBulk}
-                className="flex items-center space-x-2 px-4 py-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isSendingBulk ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Send className="w-4 h-4" />
-                )}
-                <span>{isSendingBulk ? 'Enviando...' : 'Enviar'}</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Seção de Adicionar aos Contatos */}
-      {activeTab === 'generate-leads' && detectedCompanyData.length > 0 && (
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 mt-6">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center space-x-2">
-            <UserPlus className="w-5 h-5 text-green-600" />
-            <span>Adicionar aos Contatos</span>
-          </h3>
-          <p className="text-gray-600 dark:text-gray-400 mb-4">
-            {detectedCompanyData.length} empresa(s) detectada(s) na resposta da IA. Clique para adicionar aos seus contatos.
-          </p>
-          <div className="space-y-2 mb-4">
-            {detectedCompanyData.map((company, index) => (
-              <div key={index} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                <div>
-                  <p className="font-medium text-gray-900 dark:text-white">{company.name}</p>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">{formatPhoneNumber(company.phone)}</p>
+                  <button
+                    onClick={() => {
+                      setSelectedContact(null);
+                      setMessageText('Olá! Encontrei seu contato e gostaria de apresentar nossos serviços...');
+                      setShowMessageModal(true);
+                    }}
+                    className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+                  >
+                    Enviar para Todos
+                  </button>
                 </div>
               </div>
-            ))}
+
+              {/* Lista de contatos */}
+              <div className="space-y-2 max-h-96 overflow-y-auto">
+                {extractedContacts.map((contact) => (
+                  <div key={contact.id} className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                    <div className="flex-1">
+                      <h4 className="font-medium text-gray-900 dark:text-white">{contact.nome}</h4>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">{contact.numero}</p>
+                      {contact.endereco && (
+                        <p className="text-xs text-gray-500 dark:text-gray-500">{contact.endereco}</p>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => {
+                        setSelectedContact({nome: contact.nome, numero: contact.numero});
+                        setMessageText(`Olá ${contact.nome}! Encontrei seu contato e gostaria de apresentar nossos serviços...`);
+                        setShowMessageModal(true);
+                      }}
+                      className="px-3 py-1 bg-green-500 text-white text-sm rounded-lg hover:bg-green-600 transition-colors"
+                    >
+                      Enviar Mensagem
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
-          <button
-            onClick={handleSaveCompaniesToContacts}
-            disabled={savingToContacts}
-            className="flex items-center space-x-2 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {savingToContacts ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <UserPlus className="w-4 h-4" />
-            )}
-            <span>{savingToContacts ? 'Salvando...' : 'Adicionar Todas aos Contatos'}</span>
-          </button>
         </div>
       )}
 
-      {/* Seção de Envio de Mensagem Personalizada */}
-      {activeTab === 'generate-leads' && detectedPhoneNumbers.length > 0 && (
-        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 mt-6">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center space-x-2">
-            <Send className="w-5 h-5 text-indigo-600" />
-            <span>Enviar Mensagem Personalizada</span>
-          </h3>
-          <p className="text-gray-600 dark:text-gray-400 mb-4">
-            Números de telefone detectados na resposta da IA. Clique para enviar uma mensagem personalizada.
-          </p>
-          <div className="flex flex-wrap gap-3">
-            <button
-              key={`all-${detectedPhoneNumbers.length}`} // Chave única para o botão "Enviar para Todos"
-              onClick={() => {
-                setPersonalizedMessageContent(''); // Limpar conteúdo da mensagem anterior
-                setShowSendAllPersonalizedMessageModal(true);
-              }}
-              disabled={!isZAPIConfigured || !isConnected || detectedPhoneNumbers.length === 0}
-              className="flex items-center space-x-2 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Send className="w-4 h-4" />
-              <span>Enviar Para Todos ({detectedPhoneNumbers.length})</span>
-            </button>
-            {detectedPhoneNumbers.map((number, index) => (
+      {/* Modal de Contato */}
+      {showContactModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-6 max-w-md w-full mx-4">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-semibold text-gray-900 dark:text-white">
+                {selectedContact ? 'Editar Contato' : 'Novo Contato'}
+              </h3>
               <button
-                key={index}
-                onClick={() => handleOpenPersonalizedMessageModal(number)}
-                disabled={!isZAPIConfigured || !isConnected}
-                className="flex items-center space-x-2 px-4 py-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={() => {
+                  setShowContactModal(false);
+                  setSelectedContact(null);
+                  setContactForm({ name: '', phone_number: '', email: '', location: '', tags: [] });
+                }}
+                className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
               >
-                <Phone className="w-4 h-4" />
-                <span>Enviar para {formatPhoneNumber(number)}</span>
+                <X className="w-6 h-6" />
               </button>
-            ))}
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Nome
+                </label>
+                <input
+                  type="text"
+                  value={contactForm.name}
+                  onChange={(e) => setContactForm(prev => ({ ...prev, name: e.target.value }))}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  placeholder="Nome do contato"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Telefone
+                </label>
+                <input
+                  type="tel"
+                  value={contactForm.phone_number}
+                  onChange={(e) => setContactForm(prev => ({ ...prev, phone_number: e.target.value }))}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  placeholder="5511999999999"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Email
+                </label>
+                <input
+                  type="email"
+                  value={contactForm.email}
+                  onChange={(e) => setContactForm(prev => ({ ...prev, email: e.target.value }))}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  placeholder="contato@email.com"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Localização
+                </label>
+                <input
+                  type="text"
+                  value={contactForm.location}
+                  onChange={(e) => setContactForm(prev => ({ ...prev, location: e.target.value }))}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  placeholder="Cidade, Estado"
+                />
+              </div>
+
+              <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200 dark:border-gray-700">
+                <button
+                  onClick={() => {
+                    setShowContactModal(false);
+                    setSelectedContact(null);
+                    setContactForm({ name: '', phone_number: '', email: '', location: '', tags: [] });
+                  }}
+                  className="px-6 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={saveContact}
+                  disabled={loading || !contactForm.phone_number.trim()}
+                  className="px-6 py-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+                >
+                  {loading ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Plus className="w-4 h-4" />
+                  )}
+                  <span>{loading ? 'Salvando...' : selectedContact ? 'Atualizar Contato' : 'Salvar Contato'}</span>
+                </button>
+              </div>
+            </div>
           </div>
-          {(!isZAPIConfigured || !isConnected) && (
-            <p className="text-sm text-red-500 dark:text-red-400 mt-4">
-              ⚠️ Z-API não configurada ou desconectada. Verifique a aba "Número WhatsApp" para habilitar o envio.
-            </p>
-          )}
+        </div>
+      )}
+
+      {/* Modal de Mensagem em Massa */}
+      {showMessageModal && !selectedLead && !selectedContact && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-6 max-w-lg w-full mx-4">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-semibold text-gray-900 dark:text-white">
+                Enviar Mensagem em Massa
+              </h3>
+              <button
+                onClick={() => setShowMessageModal(false)}
+                className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                <div className="flex items-center space-x-2 mb-2">
+                  <Target className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                  <h4 className="font-medium text-blue-800 dark:text-blue-300">Resumo do Envio</h4>
+                </div>
+                <div className="text-sm text-blue-700 dark:text-blue-400 space-y-1">
+                  <p><strong>Total de leads:</strong> {generatedLeads.length}</p>
+                  <p><strong>Serão enviados:</strong> {generatedLeads.filter(lead => !hasMessageBeenSent(lead.numero)).length}</p>
+                  <p><strong>Já enviados anteriormente:</strong> {generatedLeads.filter(lead => hasMessageBeenSent(lead.numero)).length}</p>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Mensagem Personalizada
+                </label>
+                <textarea
+                  value={customMessage}
+                  onChange={(e) => setCustomMessage(e.target.value)}
+                  rows={6}
+                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent resize-none bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  placeholder="Digite sua mensagem personalizada..."
+                />
+                <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                  <p><strong>Variáveis disponíveis:</strong></p>
+                  <p>• <code>{'{nome}'}</code> - Nome do negócio</p>
+                  <p>• <code>{'{segmento}'}</code> - Segmento do negócio</p>
+                  <p>• <code>{'{cidade}'}</code> - Cidade do negócio</p>
+                </div>
+              </div>
+
+              <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200 dark:border-gray-700">
+                <button
+                  onClick={() => setShowMessageModal(false)}
+                  className="px-6 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={sendBulkMessages}
+                  disabled={!customMessage.trim() || sendingMessages}
+                  className="px-6 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+                >
+                  {sendingMessages ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Send className="w-4 h-4" />
+                  )}
+                  <span>
+                    {sendingMessages 
+                      ? 'Enviando...' 
+                      : `Enviar para ${generatedLeads.filter(lead => !hasMessageBeenSent(lead.numero)).length} leads`
+                    }
+                  </span>
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
       {/* Modal de Mensagem Personalizada */}
-      {showPersonalizedMessageModal && (
+      {showMessageModal && selectedLead && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white dark:bg-gray-800 rounded-xl p-6 max-w-md w-full mx-4">
             <div className="flex items-center justify-between mb-6">
@@ -1335,7 +1716,11 @@ const Contacts: React.FC = () => {
                 Enviar Mensagem Personalizada
               </h3>
               <button
-                onClick={() => setShowPersonalizedMessageModal(false)}
+                onClick={() => {
+                  setShowMessageModal(false);
+                  setSelectedLead(null);
+                  setCustomMessage('');
+                }}
                 className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
               >
                 <X className="w-6 h-6" />
@@ -1343,65 +1728,74 @@ const Contacts: React.FC = () => {
             </div>
 
             <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Número de Telefone
-                </label>
-                <input
-                  type="text"
-                  value={formatPhoneNumber(targetPhoneNumberForPersonalizedMessage)}
-                  readOnly
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white cursor-not-allowed"
-                />
+              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
+                <p className="text-blue-800 dark:text-blue-300 text-sm">
+                  <strong>Lead:</strong> {selectedLead.nomenegocio}
+                </p>
+                <p className="text-blue-700 dark:text-blue-400 text-sm">
+                  <strong>Telefone:</strong> {formatPhoneNumber(selectedLead.numero)}
+                </p>
               </div>
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Mensagem
+                  Mensagem Personalizada
                 </label>
                 <textarea
-                  value={personalizedMessageContent}
-                  onChange={(e) => setPersonalizedMessageContent(e.target.value)}
-                  rows={5}
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  value={customMessage}
+                  onChange={(e) => setCustomMessage(e.target.value)}
+                  rows={6}
+                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                   placeholder="Digite sua mensagem personalizada..."
-                ></textarea>
+                />
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  Personalize sua mensagem para este lead específico
+                </p>
               </div>
-            </div>
 
-            <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200 dark:border-gray-700 mt-6">
-              <button
-                onClick={() => setShowPersonalizedMessageModal(false)}
-                className="px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={handleSendPersonalizedMessage}
-                disabled={!personalizedMessageContent.trim() || isSendingBulk}
-                className="flex items-center space-x-2 px-4 py-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isSendingBulk ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Send className="w-4 h-4" />
-                )}
-                <span>{isSendingBulk ? 'Enviando...' : 'Enviar'}</span>
-              </button>
+              <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200 dark:border-gray-700">
+                <button
+                  onClick={() => {
+                    setShowMessageModal(false);
+                    setSelectedLead(null);
+                    setCustomMessage('');
+                  }}
+                  className="px-6 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={sendCustomMessage}
+                  disabled={!customMessage.trim() || sendingMessage}
+                  className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+                >
+                  {sendingMessage ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <MessageSquare className="w-4 h-4" />
+                  )}
+                  <span>{sendingMessage ? 'Enviando...' : 'Enviar Mensagem'}</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Modal de Mensagem Personalizada Para Todos */}
-      {showSendAllPersonalizedMessageModal && (
+      {/* Modal de Envio de Mensagem */}
+      {showMessageModal && selectedContact && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white dark:bg-gray-800 rounded-xl p-6 max-w-md w-full mx-4">
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-xl font-semibold text-gray-900 dark:text-white">
-                Enviar Mensagem Para Todos
+                {selectedContact ? `Enviar para ${selectedContact.nome}` : `Enviar para Todos (${extractedContacts.length})`}
               </h3>
               <button
-                onClick={() => setShowSendAllPersonalizedMessageModal(false)}
+                onClick={() => {
+                  setShowMessageModal(false);
+                  setSelectedContact(null);
+                  setMessageText('');
+                }}
                 className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
               >
                 <X className="w-6 h-6" />
@@ -1409,56 +1803,66 @@ const Contacts: React.FC = () => {
             </div>
 
             <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Mensagem para {detectedPhoneNumbers.length} números
-                </label>
-                <textarea
-                  value={personalizedMessageContent}
-                  onChange={(e) => setPersonalizedMessageContent(e.target.value)}
-                  rows={5}
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                  placeholder="Digite sua mensagem personalizada para todos os números detectados..."
-                ></textarea>
-              </div>
-              {bulkSendResult && (
-                <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-3 text-sm">
-                  <p className="text-gray-900 dark:text-white">
-                    Enviados: {bulkSendResult.sent} / {bulkSendResult.total}
+              {selectedContact ? (
+                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
+                  <p className="text-blue-800 dark:text-blue-300 text-sm">
+                    <strong>Destinatário:</strong> {selectedContact.nome}
                   </p>
-                  {bulkSendResult.failed > 0 && (
-                    <p className="text-red-600 dark:text-red-400">
-                      Falhas: {bulkSendResult.failed}
-                    </p>
-                  )}
-                  {bulkSendResult.errors.length > 0 && (
-                    <ul className="list-disc list-inside text-red-500 dark:text-red-300 mt-2 max-h-24 overflow-y-auto">
-                      {bulkSendResult.errors.map((err, i) => <li key={i}>{err}</li>)}
-                    </ul>
-                  )}
+                  <p className="text-blue-700 dark:text-blue-400 text-sm">
+                    <strong>Número:</strong> {selectedContact.numero}
+                  </p>
+                </div>
+              ) : (
+                <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg p-3">
+                  <p className="text-orange-800 dark:text-orange-300 text-sm">
+                    <strong>⚠️ Envio em massa:</strong> A mensagem será enviada para {extractedContacts.length} contatos
+                  </p>
+                  <p className="text-orange-700 dark:text-orange-400 text-xs mt-1">
+                    Haverá um intervalo de 1 segundo entre cada envio
+                  </p>
                 </div>
               )}
-            </div>
 
-            <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200 dark:border-gray-700 mt-6">
-              <button
-                onClick={() => setShowSendAllPersonalizedMessageModal(false)}
-                className="px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={handleSendAllPersonalizedMessage}
-                disabled={!personalizedMessageContent.trim() || isSendingBulk}
-                className="flex items-center space-x-2 px-4 py-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isSendingBulk ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Send className="w-4 h-4" />
-                )}
-                <span>{isSendingBulk ? 'Enviando...' : 'Enviar Para Todos'}</span>
-              </button>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Mensagem
+                </label>
+                <textarea
+                  value={messageText}
+                  onChange={(e) => setMessageText(e.target.value)}
+                  rows={4}
+                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                  placeholder="Digite sua mensagem..."
+                />
+              </div>
+
+              <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200 dark:border-gray-700">
+                <button
+                  onClick={() => {
+                    setShowMessageModal(false);
+                    setSelectedContact(null);
+                    setMessageText('');
+                  }}
+                  className="px-6 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={selectedContact ? () => sendMessageToContact(selectedContact) : sendBulkMessage}
+                  disabled={!messageText.trim() || sendingMessage || sendingBulkMessage}
+                  className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+                >
+                  {(sendingMessage || sendingBulkMessage) ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <MessageSquare className="w-4 h-4" />
+                  )}
+                  <span>
+                    {sendingMessage || sendingBulkMessage ? 'Enviando...' : 
+                     selectedContact ? 'Enviar Mensagem' : `Enviar para Todos (${extractedContacts.length})`}
+                  </span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
