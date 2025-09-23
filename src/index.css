@@ -60,3 +60,40 @@
 ::-webkit-scrollbar-thumb:hover {
   @apply bg-gray-400 dark:bg-gray-500;
 }
+
+/* Estilos específicos para impressão de comprovantes */
+@media print {
+  /* Ocultar tudo por padrão */
+  body * {
+    visibility: hidden;
+  }
+  
+  /* Mostrar apenas o conteúdo do comprovante */
+  .receipt-container,
+  .receipt-container * {
+    visibility: visible;
+  }
+  
+  .receipt-container {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+  
+  /* Configurações da página para impressão de comprovante */
+  @page {
+    size: 80mm auto; /* Tamanho padrão para impressoras térmicas */
+    margin: 5mm;
+  }
+  
+  /* Remover elementos da interface */
+  .no-print {
+    display: none !important;
+  }
+}
+
+/* Classe utilitária para elementos que não devem ser impressos */
+.no-print {
+  /* Esta classe pode ser usada em elementos que não devem aparecer na impressão */
+}

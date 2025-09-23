@@ -13,6 +13,7 @@ interface WhatsAppNumber {
   profile_id: string;
   organization_id: string;
   instance_id: string | null;
+  llm: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -80,10 +81,10 @@ export const useWhatsAppConnection = () => {
         console.log('🔍 BUSCA 1: Por profile_id E organization_id');
         const { data, error: fetchError } = await supabase
           .from('whatsapp_numbers')
-          .select('*')
+          .select('id, profile_id, organization_id, phone_number, display_name, connection_status, instance_id, is_ai_active, ai_prompt, llm, created_at, updated_at, nomeagente, agent_instance_id, agent_token, agent_phone_number')
           .eq('profile_id', profile.id)
           .eq('organization_id', profile.organization_id)
-          .maybeSingle();
+          .limit(1);
 
         console.log('📊 BUSCA 1 - Resultado:', data);
         console.log('📊 BUSCA 1 - Erro:', fetchError);
@@ -92,7 +93,7 @@ export const useWhatsAppConnection = () => {
         console.log('🔍 BUSCA 2: Apenas por organization_id');
         const { data: dataByOrg, error: fetchErrorByOrg } = await supabase
           .from('whatsapp_numbers')
-          .select('*')
+          .select('id, profile_id, organization_id, phone_number, display_name, connection_status, instance_id, is_ai_active, ai_prompt, llm, created_at, updated_at, nomeagente, agent_instance_id, agent_token, agent_phone_number')
           .eq('organization_id', profile.organization_id);
         
         console.log('📊 BUSCA 2 - Resultados por organization_id:', dataByOrg);
@@ -102,7 +103,7 @@ export const useWhatsAppConnection = () => {
         console.log('🔍 BUSCA 3: Apenas por profile_id');
         const { data: dataByProfile, error: fetchErrorByProfile } = await supabase
           .from('whatsapp_numbers')
-          .select('*')
+          .select('id, profile_id, organization_id, phone_number, display_name, connection_status, instance_id, is_ai_active, ai_prompt, llm, created_at, updated_at, nomeagente, agent_instance_id, agent_token, agent_phone_number')
           .eq('profile_id', profile.id);
         
         console.log('📊 BUSCA 3 - Resultados por profile_id:', dataByProfile);
@@ -112,14 +113,14 @@ export const useWhatsAppConnection = () => {
         console.log('🔍 BUSCA 4: TODOS os registros da tabela (para debug)');
         const { data: allRecords, error: allRecordsError } = await supabase
           .from('whatsapp_numbers')
-          .select('*')
+          .select('id, profile_id, organization_id, phone_number, display_name, connection_status, instance_id, is_ai_active, ai_prompt, llm, created_at, updated_at, nomeagente, agent_instance_id, agent_token, agent_phone_number')
           .limit(10);
         
         console.log('📊 BUSCA 4 - TODOS os registros:', allRecords);
         console.log('📊 BUSCA 4 - Total de registros na tabela:', allRecords?.length || 0);
         
         // Analisar qual busca encontrou dados
-        let finalData = data;
+        let finalData = data && data.length > 0 ? data[0] : null;
         let searchMethod = 'profile_id + organization_id';
         
         if (!data && dataByOrg && dataByOrg.length > 0) {
@@ -205,6 +206,7 @@ export const useWhatsAppConnection = () => {
     displayName?: string;
     isAiActive?: boolean;
     aiPrompt?: string;
+    llm?: string;
   }) => {
     try {
       console.log('💾 Saving/updating WhatsApp number in Supabase:', data);
@@ -250,6 +252,7 @@ export const useWhatsAppConnection = () => {
         instance_id: data.instanceId,
         is_ai_active: data.isAiActive !== undefined ? data.isAiActive : true,
         ai_prompt: data.aiPrompt || 'Você é um assistente virtual prestativo.',
+        llm: data.llm,
         updated_at: new Date().toISOString()
       };
 
@@ -268,7 +271,7 @@ export const useWhatsAppConnection = () => {
           .update(updateData)
           .eq('id', existingRecord.id)
           .eq('profile_id', data.profileId) // Garantir que só atualiza do usuário correto
-          .select()
+          .select('id, profile_id, organization_id, phone_number, display_name, connection_status, instance_id, is_ai_active, ai_prompt, llm, created_at, updated_at, nomeagente, agent_instance_id, agent_token, agent_phone_number')
           .single();
 
         if (updateError) {
@@ -297,7 +300,7 @@ export const useWhatsAppConnection = () => {
             ...updateData,
             created_at: new Date().toISOString()
           })
-          .select()
+          .select('id, profile_id, organization_id, phone_number, display_name, connection_status, instance_id, is_ai_active, ai_prompt, llm, created_at, updated_at, nomeagente, agent_instance_id, agent_token, agent_phone_number')
           .single();
 
         if (insertError) {

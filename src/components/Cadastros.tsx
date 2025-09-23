@@ -20,10 +20,20 @@ import {
   Filter,
   Download,
   UserCheck,
-  Clock
+  Clock,
+  FileDown
 } from 'lucide-react';
 import { useAuthContext } from './AuthProvider';
 import { supabase } from '../lib/supabase';
+import jsPDF from 'jspdf';
+import 'jspdf-autotable';
+
+// Extend jsPDF type to include autoTable
+declare module 'jspdf' {
+  interface jsPDF {
+    autoTable: (options: any) => jsPDF;
+  }
+}
 
 interface CadastroExtraido {
   id: string;
@@ -61,6 +71,127 @@ const Cadastros: React.FC = () => {
   const [selectedCadastro, setSelectedCadastro] = useState<CadastroExtraido | null>(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [filterPlatform, setFilterPlatform] = useState<'all' | 'whatsapp' | 'instagram'>('all');
+
+  // Função para exportar cadastros em PDF
+  const exportToPDF = () => {
+    try {
+      console.log('📄 Iniciando exportação de cadastros para PDF...');
+      
+      // Criar novo documento PDF
+      const doc = new jsPDF();
+      
+      // Configurar fonte para suportar caracteres especiais
+      doc.setFont('helvetica');
+      
+      // Título do documento
+      doc.setFontSize(20);
+      doc.setTextColor(59, 130, 246); // Cor azul
+      doc.text('Relatório de Cadastros - Atendos IA', 20, 25);
+      
+      // Informações do cabeçalho
+      doc.setFontSize(10);
+      doc.setTextColor(100, 100, 100);
+      doc.text(`Gerado em: ${new Date().toLocaleString('pt-BR')}`, 20, 35);
+      doc.text(`Total de cadastros: ${cadastrosFiltrados.length}`, 20, 42);
+      doc.text(`Filtro aplicado: ${filterPlatform === 'all' ? 'Todas as plataformas' : filterPlatform === 'whatsapp' ? 'WhatsApp' : 'Instagram'}`, 20, 49);
+      
+      if (searchTerm.trim()) {
+        doc.text(`Busca: "${searchTerm}"`, 20, 56);
+      }
+      
+      // Preparar dados para a tabela
+      const tableData = cadastrosFiltrados.map((cadastro, index) => [
+        (index + 1).toString(), // Número sequencial
+        cadastro.nome || 'N/A',
+        formatPhoneNumber(cadastro.telefone) || 'N/A',
+        cadastro.email || 'N/A',
+        cadastro.cpf ? formatCPF(cadastro.cpf) : 'N/A',
+        cadastro.plataforma === 'whatsapp' ? 'WhatsApp' : 'Instagram',
+        cadastro.total_mensagens.toString(),
+        new Date(cadastro.primeira_conversa).toLocaleDateString('pt-BR'),
+        new Date(cadastro.ultima_conversa).toLocaleDateString('pt-BR')
+      ]);
+      
+      // Configurar tabela
+      const tableColumns = [
+        { header: '#', dataKey: 'numero' },
+        { header: 'Nome', dataKey: 'nome' },
+        { header: 'Telefone/Usuário', dataKey: 'telefone' },
+        { header: 'Email', dataKey: 'email' },
+        { header: 'CPF', dataKey: 'cpf' },
+        { header: 'Plataforma', dataKey: 'plataforma' },
+        { header: 'Msgs', dataKey: 'mensagens' },
+        { header: 'Primeira', dataKey: 'primeira' },
+        { header: 'Última', dataKey: 'ultima' }
+      ];
+      
+      // Adicionar tabela ao PDF
+      doc.autoTable({
+        head: [tableColumns.map(col => col.header)],
+        body: tableData,
+        startY: searchTerm.trim() ? 65 : 58,
+        styles: {
+          fontSize: 8,
+          cellPadding: 2,
+          overflow: 'linebreak',
+          halign: 'left'
+        },
+        headStyles: {
+          fillColor: [59, 130, 246], // Cor azul
+          textColor: [255, 255, 255],
+          fontStyle: 'bold',
+          fontSize: 9
+        },
+        alternateRowStyles: {
+          fillColor: [248, 250, 252] // Cor cinza claro
+        },
+        columnStyles: {
+          0: { halign: 'center', cellWidth: 10 }, // #
+          1: { cellWidth: 25 }, // Nome
+          2: { cellWidth: 25 }, // Telefone
+          3: { cellWidth: 30 }, // Email
+          4: { cellWidth: 20 }, // CPF
+          5: { halign: 'center', cellWidth: 18 }, // Plataforma
+          6: { halign: 'center', cellWidth: 12 }, // Msgs
+          7: { halign: 'center', cellWidth: 18 }, // Primeira
+          8: { halign: 'center', cellWidth: 18 } // Última
+        },
+        margin: { left: 20, right: 20 },
+        tableWidth: 'auto'
+      });
+      
+      // Adicionar rodapé
+      const pageCount = doc.getNumberOfPages();
+      for (let i = 1; i <= pageCount; i++) {
+        doc.setPage(i);
+        doc.setFontSize(8);
+        doc.setTextColor(150, 150, 150);
+        doc.text(
+          `Página ${i} de ${pageCount} - Atendos IA - www.atendos.com.br`,
+          doc.internal.pageSize.width / 2,
+          doc.internal.pageSize.height - 10,
+          { align: 'center' }
+        );
+      }
+      
+      // Gerar nome do arquivo
+      const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+      const fileName = `cadastros-atendos-${timestamp}.pdf`;
+      
+      // Salvar PDF
+      doc.save(fileName);
+      
+      console.log('✅ PDF exportado com sucesso:', fileName);
+      
+      // Mostrar mensagem de sucesso
+      setSuccess(`✅ PDF exportado com sucesso! ${cadastrosFiltrados.length} cadastros incluídos.`);
+      setTimeout(() => setSuccess(null), 5000);
+      
+    } catch (err) {
+      console.error('❌ Erro ao exportar PDF:', err);
+      setError(err instanceof Error ? err.message : 'Erro ao exportar PDF');
+    }
+  };
 
   // Carregar cadastros existentes
   useEffect(() => {
@@ -372,6 +503,14 @@ const Cadastros: React.FC = () => {
           >
             <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
             <span>Atualizar</span>
+          </button>
+          <button 
+            onClick={exportToPDF}
+            disabled={cadastrosFiltrados.length === 0}
+            className="flex items-center space-x-2 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <FileDown className="w-5 h-5" />
+            <span>Exportar PDF</span>
           </button>
           <button 
             onClick={extractDataFromConversations}

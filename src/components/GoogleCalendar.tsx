@@ -116,84 +116,97 @@ const GoogleCalendar: React.FC<GoogleCalendarProps> = ({ addAppNotification }) =
     try {
       console.log('📅 Buscando eventos do Google Calendar...');
       
-      // Simular chamada à API do Google Calendar com dados mais dinâmicos
-      setTimeout(() => {
-        const today = new Date();
-        const eventCount = Math.floor(Math.random() * 3) + 3; // 3-5 eventos
+      // Buscar eventos reais do Google Calendar via Edge Function
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError || !session?.access_token) {
+        throw new Error('Sessão não encontrada. Faça login novamente.');
+      }
+
+      // Definir período de busca (30 dias para trás e 90 dias para frente)
+      const timeMin = new Date();
+      timeMin.setDate(timeMin.getDate() - 30);
+      
+      const timeMax = new Date();
+      timeMax.setDate(timeMax.getDate() + 90);
+
+      console.log('📡 Chamando Edge Function para buscar eventos reais...');
+      
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/google-calendar-events`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          calendar_id: integration.primary_calendar_id,
+          time_min: timeMin.toISOString(),
+          time_max: timeMax.toISOString(),
+          max_results: 50
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error('❌ Erro na Edge Function:', errorData);
         
-        const mockEvents: CalendarEvent[] = [
-          {
-            id: '1',
-            title: 'Reunião com Cliente',
-            start: new Date(today.getFullYear(), today.getMonth(), today.getDate(), 10, 0).toISOString(),
-            end: new Date(today.getFullYear(), today.getMonth(), today.getDate(), 11, 30).toISOString(),
-            description: 'Discussão sobre novo projeto',
-            location: 'Sala de Reuniões',
-            attendees: [
-              { email: 'cliente@example.com', name: 'Cliente' },
-              { email: 'colega@example.com', name: 'Colega' }
-            ]
-          },
-          {
-            id: '2',
-            title: 'Almoço com Equipe',
-            start: new Date(today.getFullYear(), today.getMonth(), today.getDate(), 12, 30).toISOString(),
-            end: new Date(today.getFullYear(), today.getMonth(), today.getDate(), 14, 0).toISOString(),
-            location: 'Restaurante Central'
-          },
-          {
-            id: '3',
-            title: 'Planejamento Semanal',
-            start: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1, 9, 0).toISOString(),
-            end: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1, 10, 0).toISOString()
-          },
-          {
-            id: '4',
-            title: 'Evento de Dia Inteiro',
-            start: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 2).toISOString(),
-            end: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 3).toISOString(),
-            allDay: true
-          }
-        ];
-        
-        // Adicionar eventos aleatórios para simular atualizações
-        const randomEvents = [];
-        for (let i = 0; i < eventCount - 4; i++) {
-          const randomDay = Math.floor(Math.random() * 7) - 3; // -3 a +3 dias
-          const randomHour = Math.floor(Math.random() * 8) + 9; // 9h às 17h
-          
-          randomEvents.push({
-            id: `random-${i + 5}`,
-            title: `Evento ${i + 1}`,
-            start: new Date(today.getFullYear(), today.getMonth(), today.getDate() + randomDay, randomHour, 0).toISOString(),
-            end: new Date(today.getFullYear(), today.getMonth(), today.getDate() + randomDay, randomHour + 1, 0).toISOString(),
-            description: `Evento gerado automaticamente ${new Date().toLocaleTimeString()}`
-          });
+        // Se o token expirou (401), desconectar para forçar nova autenticação
+        if (response.status === 401) {
+          setIsConnected(false);
+          setIntegration(null);
         }
         
-        const allEvents = [...mockEvents, ...randomEvents];
-        setEvents(mockEvents);
-        
-        console.log(`✅ ${allEvents.length} eventos carregados do Google Calendar`);
-        
-        // Notificar sobre novos eventos se for um refresh manual
-        if (showRefreshIndicator && addAppNotification && randomEvents.length > 0) {
-          addAppNotification({
-            title: 'Google Calendar Atualizado',
-            message: `${randomEvents.length} novo${randomEvents.length !== 1 ? 's' : ''} evento${randomEvents.length !== 1 ? 's' : ''} encontrado${randomEvents.length !== 1 ? 's' : ''} na agenda.`,
-            type: 'info'
-          });
-        }
-        
-        if (showRefreshIndicator) {
-          setRefreshing(false);
-        } else {
-          setEventsLoading(false);
-        }
-      }, 1000);
+        throw new Error(errorData.error || 'Falha ao buscar eventos do Google Calendar');
+      }
+
+      const { events: realEvents } = await response.json();
+      
+      console.log(`✅ ${realEvents?.length || 0} eventos reais carregados do Google Calendar`);
+      
+      // Converter eventos para o formato esperado pelo FullCalendar
+      const formattedEvents: CalendarEvent[] = (realEvents || []).map((event: any) => ({
+        id: event.id,
+        title: event.summary || 'Sem título',
+        start: event.start?.dateTime || event.start?.date || new Date().toISOString(),
+        end: event.end?.dateTime || event.end?.date || new Date().toISOString(),
+        description: event.description || '',
+        location: event.location || '',
+        allDay: !event.start?.dateTime, // Se não tem dateTime, é evento de dia inteiro
+        attendees: event.attendees?.map((attendee: any) => ({
+          email: attendee.email,
+          name: attendee.displayName || attendee.email
+        })) || []
+      }));
+      
+      setEvents(formattedEvents);
+      
+      // Notificar sobre eventos carregados se for um refresh manual
+      if (showRefreshIndicator && addAppNotification) {
+        addAppNotification({
+          title: 'Google Calendar Atualizado',
+          message: `${formattedEvents.length} evento${formattedEvents.length !== 1 ? 's' : ''} carregado${formattedEvents.length !== 1 ? 's' : ''} da sua agenda.`,
+          type: 'success'
+        });
+      }
+      
     } catch (err) {
       console.error('Error fetching events:', err);
-      setError('Erro ao buscar eventos do calendário.');
+      setError(err instanceof Error ? err.message : 'Erro ao buscar eventos do calendário.');
+      
+      // Em caso de erro, mostrar eventos de exemplo para não deixar vazio
+      const today = new Date();
+      const fallbackEvents: CalendarEvent[] = [
+        {
+          id: 'fallback-1',
+          title: 'Erro ao carregar eventos reais',
+          start: new Date(today.getFullYear(), today.getMonth(), today.getDate(), 10, 0).toISOString(),
+          end: new Date(today.getFullYear(), today.getMonth(), today.getDate(), 11, 0).toISOString(),
+          description: 'Verifique sua conexão com o Google Calendar',
+          allDay: false
+        }
+      ];
+      setEvents(fallbackEvents);
+    } finally {
       if (showRefreshIndicator) {
         setRefreshing(false);
       } else {

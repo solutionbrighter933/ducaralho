@@ -10,11 +10,13 @@ interface MensagemInstagram {
   data_hora: string;
   created_at: string;
   updated_at: string;
+  nomepersonalizado?: string;
 }
 
 interface ConversaInstagramAgrupada {
   sender_id: string;
   nome_contato: string;
+  nomepersonalizado?: string;
   ultima_mensagem: string;
   ultima_atividade: string;
   total_mensagens: number;
@@ -37,7 +39,115 @@ export const useInstagramConversations = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const { user } = useAuthContext();
+  const { user, profile } = useAuthContext();
+
+  // Função para detectar e extrair nome de mensagens
+  const detectarNomeNaMensagem = (mensagem: string): string | null => {
+    const textoLimpo = mensagem.toLowerCase().trim();
+    
+    // Padrões para detectar quando alguém fala seu nome
+    const padroes = [
+      // "Meu nome é João", "Me chamo Maria", etc.
+      /(?:meu nome é|me chamo|sou o|sou a|eu sou)\s+([a-záàâãéèêíïóôõöúçñ]+(?:\s+[a-záàâãéèêíïóôõöúçñ]+)?)/i,
+      
+      // "Meu nome: João", "Nome: Maria", etc.
+      /(?:meu nome|nome):\s*([a-záàâãéèêíïóôõöúçñ]+(?:\s+[a-záàâãéèêíïóôõöúçñ]+)?)/i,
+      
+      // "Eu me chamo João", "Me chamo Maria"
+      /(?:eu me chamo|me chamo)\s+([a-záàâãéèêíïóôõöúçñ]+(?:\s+[a-záàâãéèêíïóôõöúçñ]+)?)/i,
+      
+      // "Sou João", "Sou a Maria"
+      /(?:sou o|sou a|sou)\s+([a-záàâãéèêíïóôõöúçñ]+(?:\s+[a-záàâãéèêíïóôõöúçñ]+)?)/i,
+      
+      // "Meu nome completo é João Silva"
+      /(?:meu nome completo é|nome completo é)\s+([a-záàâãéèêíïóôõöúçñ]+(?:\s+[a-záàâãéèêíïóôõöúçñ]+)*)/i,
+      
+      // "Pode me chamar de João"
+      /(?:pode me chamar de|me chame de|chama de)\s+([a-záàâãéèêíïóôõöúçñ]+(?:\s+[a-záàâãéèêíïóôõöúçñ]+)?)/i,
+      
+      // "Aqui é o João", "Aqui é a Maria"
+      /(?:aqui é o|aqui é a|aqui é)\s+([a-záàâãéèêíïóôõöúçñ]+(?:\s+[a-záàâãéèêíïóôõöúçñ]+)?)/i,
+      
+      // "Oi, eu sou João"
+      /(?:oi,?\s*eu sou|olá,?\s*eu sou|oi,?\s*sou|olá,?\s*sou)\s+([a-záàâãéèêíïóôõöúçñ]+(?:\s+[a-záàâãéèêíïóôõöúçñ]+)?)/i
+    ];
+    
+    // Testar cada padrão
+    for (const padrao of padroes) {
+      const match = textoLimpo.match(padrao);
+      if (match && match[1]) {
+        const nomeDetectado = match[1].trim();
+        
+        // Validar se o nome detectado não é muito curto ou contém caracteres inválidos
+        if (nomeDetectado.length >= 2 && nomeDetectado.length <= 50) {
+          // Capitalizar primeira letra de cada palavra
+          const nomeFormatado = nomeDetectado
+            .split(' ')
+            .map(palavra => palavra.charAt(0).toUpperCase() + palavra.slice(1))
+            .join(' ');
+          
+          console.log(`🎯 Nome detectado na mensagem: "${nomeFormatado}" (padrão: ${padrao})`);
+          return nomeFormatado;
+        }
+      }
+    }
+    
+    return null;
+  };
+
+  // Função para salvar nome personalizado automaticamente
+  const salvarNomeDetectado = async (senderId: string, nomeDetectado: string) => {
+    try {
+      if (!user?.id || !profile?.organization_id) {
+        console.warn('⚠️ Usuário ou perfil não disponível para salvar nome detectado');
+        return false;
+      }
+
+      console.log(`💾 Salvando nome detectado automaticamente: ${senderId} -> ${nomeDetectado}`);
+
+      // Verificar se já existe um nome personalizado para este sender
+      const { data: existingMessage, error: checkError } = await supabase
+        .from('conversas_instagram')
+        .select('nomepersonalizado')
+        .eq('sender_id', senderId)
+        .eq('user_id', user.id)
+        .not('nomepersonalizado', 'is', null)
+        .limit(1)
+        .maybeSingle();
+
+      if (checkError && checkError.code !== 'PGRST116') {
+        console.error('❌ Erro ao verificar nome existente:', checkError);
+        return false;
+      }
+
+      // Se já existe um nome personalizado, não sobrescrever
+      if (existingMessage && existingMessage.nomepersonalizado) {
+        console.log(`ℹ️ Nome personalizado já existe para ${senderId}: ${existingMessage.nomepersonalizado}`);
+        return false;
+      }
+
+      // Atualizar todas as mensagens deste sender_id com o nome detectado
+      const { error: updateError } = await supabase
+        .from('conversas_instagram')
+        .update({
+          nomepersonalizado: nomeDetectado,
+          updated_at: new Date().toISOString()
+        })
+        .eq('sender_id', senderId)
+        .eq('user_id', user.id);
+
+      if (updateError) {
+        console.error('❌ Erro ao salvar nome detectado:', updateError);
+        return false;
+      }
+
+      console.log(`✅ Nome "${nomeDetectado}" salvo automaticamente para ${senderId}`);
+      return true;
+    } catch (err) {
+      console.error('❌ Erro ao salvar nome detectado:', err);
+      return false;
+    }
+  };
 
   // Agrupar mensagens por sender_id para criar conversas dinâmicas
   const agruparMensagensPorSender = (mensagens: MensagemInstagram[]): ConversaInstagramAgrupada[] => {
@@ -47,10 +157,14 @@ export const useInstagramConversations = () => {
       const senderId = mensagem.sender_id;
       
       if (!conversasMap.has(senderId)) {
+        // Buscar nome personalizado da primeira mensagem que tenha
+        const nomePersonalizado = mensagens.find(m => m.sender_id === senderId && m.nomepersonalizado)?.nomepersonalizado;
+        
         // Criar nova conversa
         conversasMap.set(senderId, {
           sender_id: senderId,
-          nome_contato: `@${senderId}`, // Usar o sender_id como nome por padrão
+          nome_contato: nomePersonalizado || `@${senderId}`, // Usar nome personalizado se disponível
+          nomepersonalizado: nomePersonalizado,
           ultima_mensagem: mensagem.mensagem,
           ultima_atividade: mensagem.data_hora,
           total_mensagens: 0,
@@ -98,7 +212,7 @@ export const useInstagramConversations = () => {
       // Buscar todas as mensagens do Instagram do usuário
       const { data: mensagensData, error: mensagensError } = await supabase
         .from('conversas_instagram')
-        .select('*')
+        .select('*, nomepersonalizado')
         .eq('user_id', user.id)
         .order('data_hora', { ascending: false });
 
@@ -110,6 +224,26 @@ export const useInstagramConversations = () => {
       console.log('📸 Mensagens do Instagram encontradas:', mensagensData?.length || 0);
       
       if (mensagensData && mensagensData.length > 0) {
+        // NOVA LÓGICA: Detectar nomes em mensagens recebidas antes de agrupar
+        for (const mensagem of mensagensData) {
+          // Só processar mensagens recebidas (RECEIVED) que não tenham nome personalizado ainda
+          if (mensagem.direcao.toLowerCase() === 'received' && !mensagem.nomepersonalizado) {
+            const nomeDetectado = detectarNomeNaMensagem(mensagem.mensagem);
+            
+            if (nomeDetectado) {
+              console.log(`🎯 Nome detectado em tempo real: ${nomeDetectado} para ${mensagem.sender_id}`);
+              
+              // Salvar nome detectado automaticamente
+              const salvou = await salvarNomeDetectado(mensagem.sender_id, nomeDetectado);
+              
+              if (salvou) {
+                // Atualizar a mensagem local para refletir a mudança
+                mensagem.nomepersonalizado = nomeDetectado;
+              }
+            }
+          }
+        }
+        
         // Agrupar mensagens por sender_id
         const conversasAgrupadas = agruparMensagensPorSender(mensagensData);
         setConversas(conversasAgrupadas);
@@ -155,7 +289,7 @@ export const useInstagramConversations = () => {
 
       const { data: mensagensData, error: mensagensError } = await supabase
         .from('conversas_instagram')
-        .select('*')
+        .select('*, nomepersonalizado')
         .eq('sender_id', senderId)
         .eq('user_id', user.id)
         .order('data_hora', { ascending: true });
@@ -234,6 +368,24 @@ export const useInstagramConversations = () => {
         (payload) => {
           console.log('📸 Nova mensagem do Instagram recebida via realtime:', payload);
           
+          // NOVA LÓGICA: Detectar nome em tempo real quando nova mensagem chega
+          if (payload.new && payload.new.direcao?.toLowerCase() === 'received') {
+            const nomeDetectado = detectarNomeNaMensagem(payload.new.mensagem);
+            
+            if (nomeDetectado && !payload.new.nomepersonalizado) {
+              console.log(`🎯 Nome detectado em mensagem realtime: ${nomeDetectado} para ${payload.new.sender_id}`);
+              
+              // Salvar nome detectado automaticamente
+              salvarNomeDetectado(payload.new.sender_id, nomeDetectado).then(salvou => {
+                if (salvou) {
+                  console.log('✅ Nome salvo automaticamente via realtime');
+                  // Recarregar conversas para mostrar o nome atualizado
+                  carregarConversas();
+                }
+              });
+            }
+          }
+          
           // Recarregar conversas para atualizar contadores
           carregarConversas();
           
@@ -291,40 +443,101 @@ export const useInstagramConversations = () => {
 
   // Função para enviar mensagem via Edge Function
   const enviarMensagem = async (recipientId: string, messageText: string) => {
+    // Verificar se o usuário está autenticado
     if (!user?.id) {
       throw new Error('Usuário não autenticado');
     }
 
-    console.log(`📤 Enviando mensagem Instagram para ${recipientId}...`);
+    // Verificar se o perfil está carregado
+    if (!profile?.organization_id) {
+      throw new Error('Perfil não carregado. Aguarde alguns segundos e tente novamente.');
+    }
+
+    console.log(`📤 Enviando mensagem Instagram para ${recipientId} via webhook...`);
 
     try {
-      // Obter token de autenticação do usuário
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      
-      if (sessionError || !session?.access_token) {
-        throw new Error('Usuário não autenticado');
+      // Buscar a URL do webhook configurada pelo usuário
+      const { data: webhookConfig, error: webhookError } = await supabase
+        .from('IndInsta')
+        .select('webhook_url')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (webhookError) {
+        console.error('❌ Erro ao buscar configuração do webhook:', webhookError);
+        throw new Error('Erro ao buscar configuração do webhook');
       }
 
-      // Chamar Edge Function para enviar mensagem
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/instagram-send-message`, {
+      if (!webhookConfig || !webhookConfig.webhook_url) {
+        throw new Error('Webhook do Instagram não configurado. Configure em Configurações > Webhook Instagram');
+      }
+
+      console.log('📡 Usando webhook configurado para enviar mensagem...');
+
+      // Preparar payload para o webhook
+      const payload = {
+        action: 'send_message',
+        recipient_id: recipientId,
+        sender_id: recipientId,
+        account_id: recipientId, // ID da conta Instagram
+        message: messageText,
+        pass: 'boltenv',
+        timestamp: new Date().toISOString(),
+        user_id: user.id,
+        organization_id: profile?.organization_id,
+        platform: 'instagram'
+      };
+
+      console.log('📦 Payload preparado:', payload);
+
+      // Enviar para o webhook configurado
+      const response = await fetch(webhookConfig.webhook_url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({
-          recipient_id: recipientId,
-          message_text: messageText,
-        }),
+        body: JSON.stringify(payload),
       });
 
-      const result = await response.json();
-
       if (!response.ok) {
-        throw new Error(result.error || 'Falha ao enviar mensagem');
+        const errorText = await response.text();
+        console.error('❌ Erro na resposta do webhook:', response.status, errorText);
+        throw new Error(`Erro no webhook (${response.status}): ${errorText || response.statusText}`);
       }
 
-      console.log('✅ Mensagem Instagram enviada com sucesso:', result);
+      // Tentar parsear resposta como JSON, mas aceitar texto também
+      let result;
+      const responseText = await response.text();
+      
+      try {
+        result = responseText ? JSON.parse(responseText) : { success: true };
+      } catch (parseError) {
+        // Se não conseguir parsear como JSON, assumir sucesso se status for OK
+        result = { success: true, message: responseText };
+      }
+
+      console.log('✅ Mensagem Instagram enviada via webhook:', result);
+
+      // Salvar a mensagem enviada na tabela local para histórico
+      const { error: saveError } = await supabase
+        .from('conversas_instagram')
+        .insert({
+          user_id: user.id,
+          organization_id: profile?.organization_id,
+          sender_id: recipientId,
+          mensagem: messageText,
+          direcao: 'sent', // Mensagem enviada por nós
+          data_hora: new Date().toISOString(),
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        });
+
+      if (saveError) {
+        console.error('❌ Erro ao salvar mensagem no histórico:', saveError);
+        // Não falhar a operação principal se não conseguir salvar no histórico
+      } else {
+        console.log('✅ Mensagem salva no histórico local');
+      }
 
       // Recarregar conversas para mostrar a nova mensagem
       await carregarConversas();
@@ -338,6 +551,47 @@ export const useInstagramConversations = () => {
 
     } catch (err) {
       console.error('❌ Erro ao enviar mensagem Instagram:', err);
+      throw err;
+    }
+  };
+
+  // Atualizar nome personalizado
+  const atualizarNomePersonalizado = async (senderId: string, nomePersonalizado: string) => {
+    try {
+      if (!user?.id) {
+        throw new Error('Usuário não autenticado');
+      }
+
+      console.log(`✏️ Atualizando nome personalizado para ${senderId}: ${nomePersonalizado}`);
+
+      // Atualizar todas as mensagens deste sender_id com o nome personalizado
+      const { error: updateError } = await supabase
+        .from('conversas_instagram')
+        .update({
+          nomepersonalizado: nomePersonalizado.trim() || null,
+          updated_at: new Date().toISOString()
+        })
+        .eq('sender_id', senderId)
+        .eq('user_id', user.id);
+
+      if (updateError) {
+        console.error('❌ Erro ao atualizar nome personalizado:', updateError);
+        throw updateError;
+      }
+
+      console.log('✅ Nome personalizado atualizado com sucesso');
+
+      // Recarregar conversas para refletir a mudança
+      await carregarConversas();
+
+      // Se a conversa atual é a que foi atualizada, recarregar mensagens
+      if (conversaSelecionada && conversaSelecionada.sender_id === senderId) {
+        await carregarMensagens(senderId);
+      }
+
+      return true;
+    } catch (err) {
+      console.error('❌ Erro ao atualizar nome personalizado:', err);
       throw err;
     }
   };
@@ -358,6 +612,7 @@ export const useInstagramConversations = () => {
     selecionarConversa,
     apagarMensagem,
     enviarMensagem,
+    atualizarNomePersonalizado,
 
     // Setters
     setConversaSelecionada,

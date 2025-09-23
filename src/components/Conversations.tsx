@@ -22,7 +22,9 @@ import {
   MessageCircle,
   ZapOff,
   Zap,
-  Trash2
+  Trash2,
+  Edit,
+  X
 } from 'lucide-react';
 import { useWhatsAppConversations } from '../hooks/useWhatsAppConversations';
 import { useInstagramConversations } from '../hooks/useInstagramConversations';
@@ -40,6 +42,9 @@ const Conversations: React.FC = () => {
   const [showChatInfo, setShowChatInfo] = useState(false);
   const [toggleAILoading, setToggleAILoading] = useState(false);
   const [deletingMessageId, setDeletingMessageId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState(false);
+  const [customName, setCustomName] = useState('');
+  const [savingName, setSavingName] = useState(false);
 
   // Obter dados de autenticação e perfil
   const { user, profile, loading: authLoading } = useAuthContext();
@@ -72,7 +77,9 @@ const Conversations: React.FC = () => {
     marcarComoLida: marcarComoLidaInstagram,
     selecionarConversa: selecionarConversaInstagram,
     setError: setErrorInstagram,
-    apagarMensagem: apagarMensagemInstagram
+    apagarMensagem: apagarMensagemInstagram,
+    enviarMensagem: enviarMensagemInstagram,
+    atualizarNomePersonalizado
   } = useInstagramConversations();
 
   // Hook para gerenciar conversas com IA bloqueada
@@ -101,7 +108,9 @@ const Conversations: React.FC = () => {
 
   // Enviar mensagem (apenas WhatsApp por enquanto)
   const handleSendMessage = async () => {
-    if (!messageInput.trim() || !conversaSelecionada || sendingMessage || conversationType !== 'whatsapp') return;
+    if (!messageInput.trim() || !conversaSelecionada || sendingMessage) return;
+
+    if (conversationType !== 'whatsapp') return;
 
     setSendingMessage(true);
     try {
@@ -109,6 +118,24 @@ const Conversations: React.FC = () => {
       setMessageInput('');
     } catch (err) {
       console.error('❌ Erro ao enviar mensagem:', err);
+      alert(`Erro ao enviar mensagem: ${err instanceof Error ? err.message : 'Erro desconhecido'}`);
+    } finally {
+      setSendingMessage(false);
+    }
+  };
+
+  // Enviar mensagem do Instagram
+  const handleSendInstagramMessage = async () => {
+    if (!messageInput.trim() || !conversaSelecionada || sendingMessage) return;
+
+    if (conversationType !== 'instagram') return;
+
+    setSendingMessage(true);
+    try {
+      await enviarMensagemInstagram(conversaSelecionada.sender_id, messageInput.trim());
+      setMessageInput('');
+    } catch (err) {
+      console.error('❌ Erro ao enviar mensagem Instagram:', err);
       alert(`Erro ao enviar mensagem: ${err instanceof Error ? err.message : 'Erro desconhecido'}`);
     } finally {
       setSendingMessage(false);
@@ -178,11 +205,14 @@ const Conversations: React.FC = () => {
   const handleSelectConversation = async (conversa: any) => {
     setShowChatActions(false);
     setShowChatInfo(false);
+    setEditingName(false);
     
     if (conversationType === 'whatsapp') {
       await selecionarConversaWhatsApp(conversa);
     } else {
       await selecionarConversaInstagram(conversa);
+      // Definir nome personalizado atual para Instagram
+      setCustomName(conversa.nomepersonalizado || '');
     }
   };
 
@@ -191,6 +221,7 @@ const Conversations: React.FC = () => {
     setConversationType(type);
     setShowChatActions(false);
     setShowChatInfo(false);
+    setEditingName(false);
   };
 
   // Tecla Enter para enviar
@@ -218,10 +249,12 @@ const Conversations: React.FC = () => {
     } else {
       // Instagram
       const nomeContato = (conversa.nome_contato || '').toLowerCase();
+      const nomePersonalizado = (conversa.nomepersonalizado || '').toLowerCase();
       const senderId = (conversa.sender_id || '').toLowerCase();
       const ultimaMensagem = (conversa.ultima_mensagem || '').toLowerCase();
       
       return nomeContato.includes(searchLower) || 
+             nomePersonalizado.includes(searchLower) ||
              senderId.includes(searchLower) || 
              ultimaMensagem.includes(searchLower);
     }
@@ -295,6 +328,28 @@ const Conversations: React.FC = () => {
     } finally {
       setDeletingMessageId(null);
     }
+  };
+
+  // Salvar nome personalizado (apenas Instagram)
+  const handleSaveCustomName = async () => {
+    if (!conversaSelecionada || conversationType !== 'instagram') return;
+
+    try {
+      setSavingName(true);
+      await atualizarNomePersonalizado(conversaSelecionada.sender_id, customName);
+      setEditingName(false);
+    } catch (err) {
+      console.error('❌ Erro ao salvar nome personalizado:', err);
+      alert(`Erro ao salvar nome: ${err instanceof Error ? err.message : 'Erro desconhecido'}`);
+    } finally {
+      setSavingName(false);
+    }
+  };
+
+  // Cancelar edição do nome
+  const handleCancelNameEdit = () => {
+    setEditingName(false);
+    setCustomName(conversaSelecionada?.nomepersonalizado || '');
   };
 
   if (loading) {
@@ -422,6 +477,11 @@ const Conversations: React.FC = () => {
               // Verificar se a IA está bloqueada para esta conversa
               const isAIBlocked = isConversationBlocked(conversaId);
               
+              // Determinar nome de exibição
+              const displayName = conversationType === 'whatsapp' 
+                ? (conversa.nome_contato || conversa.numero_contato)
+                : (conversa.nomepersonalizado || conversa.nome_contato || `@${conversa.sender_id}`);
+              
               return (
                 <div
                   key={conversationType === 'whatsapp' ? conversa.conversa_id : conversa.sender_id}
@@ -454,14 +514,15 @@ const Conversations: React.FC = () => {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between">
                         <h3 className="font-medium text-gray-900 dark:text-white truncate">
-                          {conversa.nome_contato || (conversationType === 'whatsapp' ? conversa.numero_contato : conversa.sender_id)}
+                          {displayName}
                         </h3>
                         <span className="text-xs text-gray-500 dark:text-gray-400">
                           {conversa.ultima_atividade ? formatTime(conversa.ultima_atividade) : ''}
                         </span>
                       </div>
                       <p className="text-sm text-gray-600 dark:text-gray-400 truncate mt-1">
-                        {conversationType === 'whatsapp' ? conversa.numero_contato : `@${conversa.sender_id}`}
+                        {conversationType === 'whatsapp' ? conversa.numero_contato : 
+                         (conversa.nomepersonalizado ? `@${conversa.sender_id}` : `@${conversa.sender_id}`)}
                       </p>
                       {conversa.ultima_mensagem && (
                         <p className="text-sm text-gray-500 dark:text-gray-500 truncate mt-1">
@@ -477,6 +538,12 @@ const Conversations: React.FC = () => {
                             conversationType === 'whatsapp' ? 'bg-green-500' : 'bg-purple-500'
                           }`}>
                             {conversa.nao_lidas}
+                          </span>
+                        )}
+                        {/* Indicador de nome personalizado */}
+                        {conversationType === 'instagram' && conversa.nomepersonalizado && (
+                          <span className="text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded-full">
+                            Nome personalizado
                           </span>
                         )}
                       </div>
@@ -516,9 +583,69 @@ const Conversations: React.FC = () => {
                   {conversationType === 'whatsapp' ? <User className="w-5 h-5" /> : <Instagram className="w-5 h-5" />}
                 </div>
                 <div>
-                  <h3 className="font-medium text-gray-900 dark:text-white">
-                    {conversaSelecionada.nome_contato || (conversationType === 'whatsapp' ? conversaSelecionada.numero_contato : conversaSelecionada.sender_id)}
-                  </h3>
+                  {/* Nome editável para Instagram */}
+                  {conversationType === 'instagram' ? (
+                    <div className="flex items-center space-x-2">
+                      {editingName ? (
+                        <div className="flex items-center space-x-2">
+                          <input
+                            type="text"
+                            value={customName}
+                            onChange={(e) => setCustomName(e.target.value)}
+                            onKeyPress={(e) => {
+                              if (e.key === 'Enter') {
+                                handleSaveCustomName();
+                              } else if (e.key === 'Escape') {
+                                handleCancelNameEdit();
+                              }
+                            }}
+                            placeholder="Nome personalizado"
+                            className="px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+                            autoFocus
+                          />
+                          <button
+                            onClick={handleSaveCustomName}
+                            disabled={savingName}
+                            className="p-1 text-green-600 dark:text-green-400 hover:text-green-800 dark:hover:text-green-300 disabled:opacity-50"
+                            title="Salvar nome"
+                          >
+                            {savingName ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <CheckCheck className="w-4 h-4" />
+                            )}
+                          </button>
+                          <button
+                            onClick={handleCancelNameEdit}
+                            className="p-1 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-300"
+                            title="Cancelar"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center space-x-2">
+                          <h3 className="font-medium text-gray-900 dark:text-white">
+                            {conversaSelecionada.nomepersonalizado || conversaSelecionada.nome_contato || `@${conversaSelecionada.sender_id}`}
+                          </h3>
+                          <button
+                            onClick={() => {
+                              setEditingName(true);
+                              setCustomName(conversaSelecionada.nomepersonalizado || '');
+                            }}
+                            className="p-1 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
+                            title="Editar nome"
+                          >
+                            <Edit className="w-3 h-3" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <h3 className="font-medium text-gray-900 dark:text-white">
+                      {conversaSelecionada.nome_contato || conversaSelecionada.numero_contato}
+                    </h3>
+                  )}
                   <div className="flex items-center space-x-2">
                     <span className={`text-xs px-2 py-1 rounded-full font-medium ${
                       conversationType === 'whatsapp' 
@@ -711,12 +838,29 @@ const Conversations: React.FC = () => {
 
             {/* Aviso para Instagram */}
             {conversationType === 'instagram' && (
-              <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-purple-50 dark:bg-purple-900/20">
-                <div className="flex items-center space-x-2 text-purple-700 dark:text-purple-300">
-                  <Instagram className="w-4 h-4" />
-                  <span className="text-sm">
-                    Visualização de mensagens do Instagram. Envio de mensagens não disponível nesta versão.
-                  </span>
+              <div className="p-4 border-t border-gray-200 dark:border-gray-700">
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="text"
+                    value={messageInput}
+                    onChange={(e) => setMessageInput(e.target.value)}
+                    onKeyPress={handleKeyPress}
+                    placeholder="Digite sua mensagem para o Instagram..."
+                    disabled={sendingMessage}
+                    className="flex-1 px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 disabled:opacity-50"
+                  />
+                  <button
+                    onClick={handleSendInstagramMessage}
+                    disabled={!messageInput.trim() || sendingMessage}
+                    className="flex items-center space-x-2 px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-2xl hover:from-purple-600 hover:to-pink-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {sendingMessage ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Send className="w-4 h-4" />
+                    )}
+                    <span>Enviar</span>
+                  </button>
                 </div>
               </div>
             )}

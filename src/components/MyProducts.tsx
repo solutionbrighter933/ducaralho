@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Package, Plus, Edit, Trash2, DollarSign, Eye, MessageSquare, RefreshCw, Loader2, AlertCircle, CheckCircle, X, MapPin } from 'lucide-react';
+import { Package, Plus, Edit, Trash2, DollarSign, Eye, EyeOff, Volume2, VolumeX, MessageSquare, RefreshCw, Loader2, AlertCircle, CheckCircle, X, MapPin, Upload, FileSpreadsheet, Download } from 'lucide-react';
 import { useAuthContext } from './AuthProvider';
 import { supabase } from '../lib/supabase';
 import { zapiService } from '../services/zapi.service';
+import OrderReceiptTemplate from './OrderReceiptTemplate';
+import * as XLSX from 'xlsx';
 
 interface Produto {
   id: number;
@@ -67,6 +69,12 @@ const MyProducts: React.FC<MyProductsProps> = ({ addAppNotification }) => {
     preco: 0,
     estoque: 0
   });
+  const [printingOrderId, setPrintingOrderId] = useState<number | null>(null);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importData, setImportData] = useState<any[]>([]);
+  const [importLoading, setImportLoading] = useState(false);
+  const [importPreview, setImportPreview] = useState<any[]>([]);
 
   // Carregar alertas já dispensados do localStorage
   useEffect(() => {
@@ -84,6 +92,274 @@ const MyProducts: React.FC<MyProductsProps> = ({ addAppNotification }) => {
   // Salvar alertas dispensados no localStorage
   const saveDismissedAlerts = (alerts: Set<number>) => {
     localStorage.setItem('dismissedPaidAlerts', JSON.stringify(Array.from(alerts)));
+  };
+
+  // Função para imprimir comprovante do pedido
+  const printOrderReceipt = async (pedido: Pedido) => {
+    try {
+      setPrintingOrderId(pedido.pedido_id);
+      console.log('🖨️ Iniciando impressão do comprovante para pedido:', pedido.pedido_id);
+
+      // Criar um iframe oculto para renderizar o comprovante
+      const iframe = document.createElement('iframe');
+      iframe.style.position = 'absolute';
+      iframe.style.left = '-9999px';
+      iframe.style.top = '-9999px';
+      iframe.style.width = '300px';
+      iframe.style.height = '600px';
+      iframe.style.border = 'none';
+      
+      document.body.appendChild(iframe);
+
+      // Aguardar o iframe carregar
+      await new Promise<void>((resolve) => {
+        iframe.onload = () => resolve();
+        iframe.src = 'about:blank';
+      });
+
+      const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
+      if (!iframeDoc) {
+        throw new Error('Não foi possível acessar o documento do iframe');
+      }
+
+      // Criar o HTML do comprovante
+      const receiptHTML = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <title>Comprovante Pedido #${pedido.pedido_id}</title>
+          <style>
+            * {
+              margin: 0;
+              padding: 0;
+              box-sizing: border-box;
+            }
+            
+            body {
+              font-family: 'Courier New', monospace;
+              font-size: 12px;
+              line-height: 1.4;
+              color: #000;
+              background: #fff;
+              padding: 10px;
+              max-width: 300px;
+              margin: 0 auto;
+            }
+            
+            .header {
+              text-align: center;
+              border-bottom: 2px solid #000;
+              padding-bottom: 8px;
+              margin-bottom: 10px;
+            }
+            
+            .header h1 {
+              font-size: 16px;
+              font-weight: bold;
+              margin-bottom: 4px;
+            }
+            
+            .header p {
+              font-size: 10px;
+              color: #666;
+            }
+            
+            .info-row {
+              display: flex;
+              justify-content: space-between;
+              margin-bottom: 4px;
+            }
+            
+            .section {
+              margin-bottom: 12px;
+            }
+            
+            .section-title {
+              font-weight: bold;
+              display: block;
+              margin-bottom: 4px;
+            }
+            
+            .status-badge {
+              background-color: ${pedido.status?.toLowerCase() === 'pago' ? '#10B981' : '#F59E0B'};
+              color: white;
+              padding: 2px 6px;
+              border-radius: 4px;
+              font-size: 10px;
+            }
+            
+            .description-box {
+              padding: 4px;
+              background-color: #f5f5f5;
+              border-radius: 4px;
+              font-size: 11px;
+            }
+            
+            .divider {
+              border-top: 1px solid #ccc;
+              padding-top: 8px;
+            }
+            
+            .footer {
+              border-top: 2px solid #000;
+              padding-top: 8px;
+              text-align: center;
+              font-size: 10px;
+              color: #666;
+            }
+            
+            @media print {
+              @page {
+                size: 80mm auto;
+                margin: 5mm;
+              }
+              
+              body {
+                margin: 0;
+                padding: 5mm;
+              }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <h1>ATENDOS IA</h1>
+            <p>Comprovante de Pedido</p>
+          </div>
+
+          <div class="section">
+            <div class="info-row">
+              <strong>Pedido #:</strong>
+              <span>${pedido.pedido_id}</span>
+            </div>
+            
+            <div class="info-row">
+              <strong>Data/Hora:</strong>
+              <span>${new Date().toLocaleString('pt-BR')}</span>
+            </div>
+            
+            <div class="info-row">
+              <strong>Status:</strong>
+              <span class="status-badge">${pedido.status || 'Pendente'}</span>
+            </div>
+            
+            <div class="info-row">
+              <strong>Valor:</strong>
+              <span style="font-size: 14px; font-weight: bold;">R$ ${pedido.valor?.toFixed(2) || '0.00'}</span>
+            </div>
+          </div>
+
+          <div class="section divider">
+            <span class="section-title">Descrição:</span>
+            <div class="description-box">
+              ${pedido.resumo}
+            </div>
+          </div>
+
+          <div class="section divider">
+            <span class="section-title">Cliente:</span>
+            <div style="font-size: 11px;">
+              <div style="margin-bottom: 2px;">
+                <strong>WhatsApp:</strong> ${formatWhatsAppNumber(pedido.id_conversa)}
+              </div>
+              <div>
+                <strong>Endereço:</strong> ${formatCustomerAddress(pedido)}
+              </div>
+            </div>
+          </div>
+
+          ${pedido.id_asaas ? `
+          <div class="section divider">
+            <span class="section-title">Pagamento:</span>
+            <div style="font-size: 10px;">
+              <div>ID Asaas: ${pedido.id_asaas}</div>
+              ${pedido.invoiceUrl ? '<div style="margin-top: 2px;">Fatura disponível online</div>' : ''}
+            </div>
+          </div>
+          ` : ''}
+
+          <div class="footer">
+            <p style="margin-bottom: 4px;">Obrigado pela preferência!</p>
+            <p>www.atendos.com.br</p>
+          </div>
+        </body>
+        </html>
+      `;
+
+      // Escrever o HTML no iframe
+      iframeDoc.open();
+      iframeDoc.write(receiptHTML);
+      iframeDoc.close();
+
+      // Aguardar um momento para o conteúdo carregar
+      setTimeout(() => {
+        try {
+          // Acionar impressão
+          iframe.contentWindow?.print();
+          console.log('✅ Diálogo de impressão acionado para pedido:', pedido.pedido_id);
+        } catch (printError) {
+          console.error('❌ Erro ao acionar impressão:', printError);
+        } finally {
+          // Remover iframe após impressão
+          setTimeout(() => {
+            document.body.removeChild(iframe);
+            setPrintingOrderId(null);
+          }, 1000);
+        }
+      }, 500);
+
+    } catch (err) {
+      console.error('❌ Erro na impressão do comprovante:', err);
+      setPrintingOrderId(null);
+    }
+  };
+
+  // Função auxiliar para formatar endereço
+  const formatCustomerAddress = (pedido: Pedido): string => {
+    const { rua, numero, bairro } = pedido;
+    
+    if (!rua && !numero && !bairro) {
+      return 'Endereço não informado';
+    }
+    
+    const parts = [];
+    
+    if (rua) {
+      if (numero) {
+        parts.push(`${rua}, ${numero}`);
+      } else {
+        parts.push(rua);
+      }
+    } else if (numero) {
+      parts.push(`Nº ${numero}`);
+    }
+    
+    if (bairro) {
+      parts.push(bairro);
+    }
+    
+    return parts.join(' - ');
+  };
+
+  // Função para formatar número de WhatsApp
+  const formatWhatsAppNumber = (numero: string): string => {
+    if (!numero) return '';
+    
+    // Remove caracteres não numéricos
+    const clean = numero.replace(/\D/g, '');
+    
+    // Formato brasileiro: +55 (11) 99999-9999
+    if (clean.length >= 10) {
+      const countryCode = clean.substring(0, 2);
+      const areaCode = clean.substring(2, 4);
+      const firstPart = clean.substring(4, clean.length - 4);
+      const lastPart = clean.substring(clean.length - 4);
+      
+      return `+${countryCode} (${areaCode}) ${firstPart}-${lastPart}`;
+    }
+    
+    return numero;
   };
 
   // Função para carregar pedidos
@@ -171,45 +447,71 @@ const MyProducts: React.FC<MyProductsProps> = ({ addAppNotification }) => {
   useEffect(() => {
     if (!user?.id || !profile?.organization_id) return;
 
-    console.log('🔔 Configurando realtime para notificações de pedidos pagos...');
+    console.log('🔔 Configurando realtime para notificações e impressão automática de pedidos...');
 
     const channel = supabase
       .channel('pedidos_payment_notifications')
       .on(
         'postgres_changes',
         {
-          event: 'UPDATE',
+          event: '*', // Escutar INSERT e UPDATE
           schema: 'public',
           table: 'pedidos',
           filter: `user_id=eq.${user.id}`
         },
         (payload) => {
-          console.log('🔔 Mudança detectada na tabela pedidos:', payload);
+          console.log('🔔 Mudança detectada na tabela pedidos:', payload.eventType, payload);
           
-          const pedidoAtualizado = payload.new as Pedido;
-          const pedidoAnterior = payload.old as Pedido;
-          
-          // Verificar se o status mudou para "pago"
-          if (pedidoAtualizado.status?.toLowerCase() === 'pago' && 
-              pedidoAnterior.status?.toLowerCase() !== 'pago' &&
-              !processedPayments.has(pedidoAtualizado.pedido_id)) {
+          if (payload.eventType === 'INSERT') {
+            // NOVO PEDIDO CRIADO - IMPRIMIR AUTOMATICAMENTE
+            const novoPedido = payload.new as Pedido;
+            console.log('🆕 Novo pedido detectado! Acionando impressão automática:', novoPedido);
             
-            console.log('🎉 Pedido foi pago! Enviando notificação...', pedidoAtualizado);
+            // Aguardar um momento para garantir que os dados estejam salvos
+            setTimeout(() => {
+              printOrderReceipt(novoPedido);
+            }, 1000);
             
-            // Marcar como processado para evitar duplicatas
-            setProcessedPayments(prev => new Set(prev).add(pedidoAtualizado.pedido_id));
-            
-            // Enviar notificação
+            // Notificar sobre novo pedido
             if (addAppNotification) {
               addAppNotification({
-                title: '🎉 Pedido Pago!',
-                message: `Pedido #${pedidoAtualizado.pedido_id} foi pago e já pode ser preparado! Cliente: ${formatWhatsAppNumber(pedidoAtualizado.id_conversa)}`,
-                type: 'success'
+                title: '📦 Novo Pedido!',
+                message: `Pedido #${novoPedido.pedido_id} criado! Comprovante sendo impresso automaticamente.`,
+                type: 'info'
               });
             }
             
-            // Recarregar dados para mostrar o status atualizado
+            // Recarregar dados
             loadPedidos();
+          }
+          
+          if (payload.eventType === 'UPDATE') {
+            // PEDIDO ATUALIZADO - VERIFICAR SE FOI PAGO
+            const pedidoAtualizado = payload.new as Pedido;
+            const pedidoAnterior = payload.old as Pedido;
+            
+            // Verificar se o status mudou para "pago"
+            if (pedidoAtualizado.status?.toLowerCase() === 'pago' && 
+                pedidoAnterior.status?.toLowerCase() !== 'pago' &&
+                !processedPayments.has(pedidoAtualizado.pedido_id)) {
+              
+              console.log('🎉 Pedido foi pago! Enviando notificação...', pedidoAtualizado);
+              
+              // Marcar como processado para evitar duplicatas
+              setProcessedPayments(prev => new Set(prev).add(pedidoAtualizado.pedido_id));
+              
+              // Enviar notificação
+              if (addAppNotification) {
+                addAppNotification({
+                  title: '🎉 Pedido Pago!',
+                  message: `Pedido #${pedidoAtualizado.pedido_id} foi pago e já pode ser preparado! Cliente: ${formatWhatsAppNumber(pedidoAtualizado.id_conversa)}`,
+                  type: 'success'
+                });
+              }
+              
+              // Recarregar dados para mostrar o status atualizado
+              loadPedidos();
+            }
           }
         }
       )
@@ -221,31 +523,9 @@ const MyProducts: React.FC<MyProductsProps> = ({ addAppNotification }) => {
     };
   }, [user?.id, profile?.organization_id, addAppNotification, processedPayments]);
 
-  // Função para formatar endereço do cliente
-  const formatCustomerAddress = (pedido: Pedido): string => {
-    const { rua, numero, bairro } = pedido;
-    
-    if (!rua && !numero && !bairro) {
-      return 'Endereço não informado';
-    }
-    
-    const parts = [];
-    
-    if (rua) {
-      if (numero) {
-        parts.push(`${rua}, ${numero}`);
-      } else {
-        parts.push(rua);
-      }
-    } else if (numero) {
-      parts.push(`Nº ${numero}`);
-    }
-    
-    if (bairro) {
-      parts.push(bairro);
-    }
-    
-    return parts.join(' - ');
+  // Função para imprimir comprovante manualmente
+  const handleManualPrint = (pedido: Pedido) => {
+    printOrderReceipt(pedido);
   };
 
   // Função para dispensar alerta de pedido pago
@@ -510,24 +790,209 @@ const MyProducts: React.FC<MyProductsProps> = ({ addAppNotification }) => {
     setShowProductModal(true);
   };
 
-  // Função para formatar número de WhatsApp
-  const formatWhatsAppNumber = (numero: string): string => {
-    if (!numero) return '';
-    
-    // Remove caracteres não numéricos
-    const clean = numero.replace(/\D/g, '');
-    
-    // Formato brasileiro: +55 (11) 99999-9999
-    if (clean.length >= 10) {
-      const countryCode = clean.substring(0, 2);
-      const areaCode = clean.substring(2, 4);
-      const firstPart = clean.substring(4, clean.length - 4);
-      const lastPart = clean.substring(clean.length - 4);
-      
-      return `+${countryCode} (${areaCode}) ${firstPart}-${lastPart}`;
+  // Função para processar arquivo Excel
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setImportFile(file);
+    setError(null);
+    setSuccess(null);
+
+    // Verificar se é um arquivo Excel
+    const validTypes = [
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+      'application/vnd.ms-excel', // .xls
+      'text/csv' // .csv
+    ];
+
+    if (!validTypes.includes(file.type)) {
+      setError('Formato de arquivo não suportado. Use arquivos .xlsx, .xls ou .csv');
+      return;
     }
+
+    // Ler arquivo
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: 'array' });
+        
+        // Pegar a primeira planilha
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        
+        // Converter para JSON
+        const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+        
+        if (jsonData.length === 0) {
+          setError('Planilha vazia ou sem dados válidos');
+          return;
+        }
+
+        // Assumir que a primeira linha são os cabeçalhos
+        const headers = jsonData[0] as string[];
+        const rows = jsonData.slice(1) as any[][];
+        
+        // Mapear dados para formato esperado
+        const mappedData = rows
+          .filter(row => row.some(cell => cell !== null && cell !== undefined && cell !== ''))
+          .map((row, index) => {
+            const produto: any = {};
+            
+            headers.forEach((header, headerIndex) => {
+              if (header && row[headerIndex] !== undefined) {
+                const normalizedHeader = header.toString().toLowerCase().trim();
+                
+                // Mapear colunas comuns
+                if (normalizedHeader.includes('nome') || normalizedHeader.includes('produto') || normalizedHeader.includes('name')) {
+                  produto.nome = row[headerIndex]?.toString() || '';
+                } else if (normalizedHeader.includes('descri') || normalizedHeader.includes('description')) {
+                  produto.descricao = row[headerIndex]?.toString() || '';
+                } else if (normalizedHeader.includes('preco') || normalizedHeader.includes('valor') || normalizedHeader.includes('price')) {
+                  const preco = parseFloat(row[headerIndex]?.toString().replace(/[^\d.,]/g, '').replace(',', '.'));
+                  produto.preco = isNaN(preco) ? 0 : preco;
+                } else if (normalizedHeader.includes('estoque') || normalizedHeader.includes('quantidade') || normalizedHeader.includes('stock')) {
+                  const estoque = parseInt(row[headerIndex]?.toString());
+                  produto.estoque = isNaN(estoque) ? 0 : estoque;
+                } else {
+                  // Manter outros campos como estão
+                  produto[normalizedHeader] = row[headerIndex];
+                }
+              }
+            });
+            
+            // Validar campos obrigatórios
+            if (!produto.nome) {
+              produto.nome = `Produto ${index + 1}`;
+            }
+            if (produto.preco === undefined) {
+              produto.preco = 0;
+            }
+            if (produto.estoque === undefined) {
+              produto.estoque = 0;
+            }
+            
+            return produto;
+          });
+        
+        setImportData(mappedData);
+        setImportPreview(mappedData.slice(0, 5)); // Mostrar apenas os primeiros 5 para preview
+        
+        console.log('📊 Dados importados:', mappedData.length, 'produtos');
+        console.log('📋 Preview dos dados:', mappedData.slice(0, 3));
+        
+      } catch (err) {
+        console.error('❌ Erro ao processar arquivo:', err);
+        setError('Erro ao processar arquivo. Verifique se é um arquivo Excel válido.');
+      }
+    };
     
-    return numero;
+    reader.readAsArrayBuffer(file);
+  };
+
+  // Função para importar produtos para o Supabase
+  const handleImportProducts = async () => {
+    if (!importData.length || !profile?.organization_id || !user?.id) {
+      setError('Dados de importação ou usuário não encontrados');
+      return;
+    }
+
+    try {
+      setImportLoading(true);
+      setError(null);
+      setSuccess(null);
+
+      console.log('📤 Importando', importData.length, 'produtos para o Supabase...');
+
+      // Preparar dados para inserção
+      const produtosParaInserir = importData.map(produto => ({
+        nome: produto.nome || 'Produto sem nome',
+        descricao: produto.descricao || '',
+        preco: produto.preco || 0,
+        estoque: produto.estoque || 0,
+        organization_id: profile.organization_id,
+        user_id: user.id
+      }));
+
+      console.log('📊 Produtos preparados para inserção:', produtosParaInserir.slice(0, 2));
+
+      // Inserir produtos no Supabase
+      const { data: produtosInseridos, error: insertError } = await supabase
+        .from('produtos')
+        .insert(produtosParaInserir)
+        .select();
+
+      if (insertError) {
+        console.error('❌ Erro ao inserir produtos:', insertError);
+        throw insertError;
+      }
+
+      console.log('✅ Produtos inseridos com sucesso:', produtosInseridos?.length);
+
+      // Fechar modal e limpar dados
+      setShowImportModal(false);
+      setImportFile(null);
+      setImportData([]);
+      setImportPreview([]);
+
+      // Recarregar lista de produtos
+      await loadProdutos();
+
+      setSuccess(`✅ ${produtosInseridos?.length || 0} produtos importados com sucesso!`);
+      setTimeout(() => setSuccess(null), 5000);
+
+      // Notificar sobre importação
+      if (addAppNotification) {
+        addAppNotification({
+          title: '📦 Produtos Importados',
+          message: `${produtosInseridos?.length || 0} produtos foram importados da planilha Excel com sucesso!`,
+          type: 'success'
+        });
+      }
+
+    } catch (err) {
+      console.error('❌ Erro na importação:', err);
+      setError(err instanceof Error ? err.message : 'Erro na importação de produtos');
+    } finally {
+      setImportLoading(false);
+    }
+  };
+
+  // Função para baixar template Excel
+  const downloadExcelTemplate = () => {
+    // Criar dados de exemplo para o template
+    const templateData = [
+      ['Nome', 'Descrição', 'Preço', 'Estoque'],
+      ['Produto Exemplo 1', 'Descrição do produto 1', '29.90', '100'],
+      ['Produto Exemplo 2', 'Descrição do produto 2', '49.90', '50'],
+      ['Produto Exemplo 3', 'Descrição do produto 3', '19.90', '200']
+    ];
+
+    // Criar workbook
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet(templateData);
+    
+    // Adicionar larguras das colunas
+    ws['!cols'] = [
+      { width: 25 }, // Nome
+      { width: 40 }, // Descrição
+      { width: 15 }, // Preço
+      { width: 15 }  // Estoque
+    ];
+    
+    XLSX.utils.book_append_sheet(wb, ws, 'Produtos');
+    
+    // Baixar arquivo
+    XLSX.writeFile(wb, 'template_produtos_atendos.xlsx');
+    
+    if (addAppNotification) {
+      addAppNotification({
+        title: '📥 Template Baixado',
+        message: 'Template Excel baixado com sucesso! Preencha os dados e importe.',
+        type: 'info'
+      });
+    }
   };
 
   if (loading) {
@@ -553,13 +1018,22 @@ const MyProducts: React.FC<MyProductsProps> = ({ addAppNotification }) => {
             <span>{loading ? 'Atualizando...' : 'Atualizar Dados'}</span>
           </button>
           {activeTab === 'produtos' && (
-            <button 
-              onClick={openNewProductModal}
-              className="flex items-center space-x-2 px-4 py-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition-colors"
-            >
-              <Plus className="w-5 h-5" />
-              <span>Novo Produto</span>
-            </button>
+            <>
+              <button 
+                onClick={openNewProductModal}
+                className="flex items-center space-x-2 px-4 py-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition-colors"
+              >
+                <Plus className="w-5 h-5" />
+                <span>Novo Produto</span>
+              </button>
+              <button 
+                onClick={() => setShowImportModal(true)}
+                className="flex items-center space-x-2 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors"
+              >
+                <Upload className="w-5 h-5" />
+                <span>Importar Excel</span>
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -754,6 +1228,20 @@ const MyProducts: React.FC<MyProductsProps> = ({ addAppNotification }) => {
                                   <Eye className="w-4 h-4" />
                                 </a>
                               )}
+                              <button
+                                onClick={() => handleManualPrint(pedido)}
+                                disabled={printingOrderId === pedido.pedido_id}
+                                className="text-purple-600 dark:text-purple-400 hover:text-purple-800 dark:hover:text-purple-300 disabled:opacity-50"
+                                title="Imprimir comprovante"
+                              >
+                                {printingOrderId === pedido.pedido_id ? (
+                                  <Loader2 className="w-4 h-4 animate-spin" />
+                                ) : (
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                                  </svg>
+                                )}
+                              </button>
                               <button
                                 onClick={() => openMessageModal(pedido)}
                                 className="text-green-600 dark:text-green-400 hover:text-green-800 dark:hover:text-green-300"
@@ -1148,6 +1636,192 @@ const MyProducts: React.FC<MyProductsProps> = ({ addAppNotification }) => {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Modal de Importação Excel */}
+      {showImportModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-6 max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-semibold text-gray-900 dark:text-white flex items-center space-x-2">
+                <FileSpreadsheet className="w-6 h-6 text-green-600" />
+                <span>Importar Produtos do Excel</span>
+              </h3>
+              <button
+                onClick={() => {
+                  setShowImportModal(false);
+                  setImportFile(null);
+                  setImportData([]);
+                  setImportPreview([]);
+                }}
+                className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="space-y-6">
+              {/* Instruções e Template */}
+              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                <h4 className="font-semibold text-blue-900 dark:text-blue-300 mb-3">📋 Como importar produtos:</h4>
+                <div className="space-y-2 text-sm text-blue-800 dark:text-blue-400">
+                  <div className="flex items-start space-x-2">
+                    <span className="font-bold">1.</span>
+                    <div>
+                      <p>Baixe o template Excel clicando no botão abaixo</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start space-x-2">
+                    <span className="font-bold">2.</span>
+                    <p>Preencha os dados dos produtos nas colunas: <strong>Nome, Descrição, Preço, Estoque</strong></p>
+                  </div>
+                  <div className="flex items-start space-x-2">
+                    <span className="font-bold">3.</span>
+                    <p>Salve o arquivo e faça o upload usando o botão "Escolher Arquivo"</p>
+                  </div>
+                  <div className="flex items-start space-x-2">
+                    <span className="font-bold">4.</span>
+                    <p>Revise os dados na prévia e clique em "Importar Produtos"</p>
+                  </div>
+                </div>
+                
+                <div className="mt-4">
+                  <button
+                    onClick={downloadExcelTemplate}
+                    className="flex items-center space-x-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span>Baixar Template Excel</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Upload de Arquivo */}
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Selecionar Arquivo Excel
+                  </label>
+                  <div className="flex items-center space-x-4">
+                    <input
+                      type="file"
+                      accept=".xlsx,.xls,.csv"
+                      onChange={handleFileUpload}
+                      className="block w-full text-sm text-gray-500 dark:text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 dark:file:bg-indigo-900/30 dark:file:text-indigo-300"
+                    />
+                  </div>
+                  {importFile && (
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mt-2">
+                      Arquivo selecionado: <strong>{importFile.name}</strong> ({(importFile.size / 1024).toFixed(1)} KB)
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Preview dos Dados */}
+              {importPreview.length > 0 && (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-semibold text-gray-900 dark:text-white">
+                      Prévia dos Dados ({importData.length} produtos encontrados)
+                    </h4>
+                    {importData.length > 5 && (
+                      <span className="text-sm text-gray-500 dark:text-gray-400">
+                        Mostrando primeiros 5 de {importData.length}
+                      </span>
+                    )}
+                  </div>
+                  
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                      <thead className="bg-gray-50 dark:bg-gray-700">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                            Nome
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                            Descrição
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                            Preço
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                            Estoque
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                        {importPreview.map((produto, index) => (
+                          <tr key={index}>
+                            <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
+                              {produto.nome || 'N/A'}
+                            </td>
+                            <td className="px-4 py-4 text-sm text-gray-900 dark:text-white max-w-xs truncate">
+                              {produto.descricao || 'Sem descrição'}
+                            </td>
+                            <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
+                              R$ {(produto.preco || 0).toFixed(2)}
+                            </td>
+                            <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
+                              {produto.estoque || 0}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  
+                  {importData.length > 5 && (
+                    <p className="text-sm text-gray-500 dark:text-gray-400 text-center">
+                      ... e mais {importData.length - 5} produtos
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Botões de Ação */}
+              <div className="flex justify-between pt-6 border-t border-gray-200 dark:border-gray-700">
+                <button
+                  onClick={() => {
+                    setShowImportModal(false);
+                    setImportFile(null);
+                    setImportData([]);
+                    setImportPreview([]);
+                  }}
+                  className="px-6 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                >
+                  Cancelar
+                </button>
+                
+                <button
+                  onClick={handleImportProducts}
+                  disabled={importLoading || importData.length === 0}
+                  className="px-6 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
+                >
+                  {importLoading ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Upload className="w-4 h-4" />
+                  )}
+                  <span>
+                    {importLoading 
+                      ? 'Importando...' 
+                      : `Importar ${importData.length} Produto${importData.length !== 1 ? 's' : ''}`
+                    }
+                  </span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Indicador de Impressão */}
+      {printingOrderId && (
+        <div className="fixed bottom-4 right-4 bg-purple-600 text-white px-4 py-2 rounded-lg shadow-lg flex items-center space-x-2 z-50">
+          <Loader2 className="w-4 h-4 animate-spin" />
+          <span>Imprimindo pedido #{printingOrderId}...</span>
         </div>
       )}
     </div>

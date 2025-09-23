@@ -53,7 +53,7 @@ const Dashboard: React.FC = () => {
     unreadMessages: 0,
     messagesThisWeek: [0, 0, 0, 0, 0, 0, 0],
     weeklyDetails: [],
-    avgResponseTime: '2 segundos',
+    avgResponseTime: '22 segundos',
     lastActivity: ''
   });
   const [recentActivity, setRecentActivity] = useState<RecentActivity[]>([]);
@@ -98,7 +98,7 @@ const Dashboard: React.FC = () => {
         unreadMessages: (parseInt(whatsappStats?.mensagens_nao_lidas) || 0) + (instagramStats.unreadMessages || 0),
         messagesThisWeek: weeklyData.map(d => d.total),
         weeklyDetails: weeklyData,
-        avgResponseTime: '2 segundos', // Sempre fixo como solicitado
+        avgResponseTime: '22 segundos', // Sempre fixo como solicitado
         lastActivity: getLatestTimestamp(whatsappStats?.ultima_atividade, instagramStats.lastActivity)
       };
 
@@ -487,7 +487,7 @@ const Dashboard: React.FC = () => {
     },
     {
       title: 'Tempo Médio de Resposta',
-      value: '2 segundos',
+      value: '22 segundos',
       change: 'Acima da média',
       positive: true,
       icon: Clock,
@@ -844,7 +844,7 @@ const Dashboard: React.FC = () => {
               <div>
                 <p className="font-medium text-gray-900 dark:text-white">Performance</p>
                 <p className="text-sm text-gray-600 dark:text-gray-400">
-                  Resposta em 2 segundos
+                  Resposta em 22 segundos
                 </p>
               </div>
             </div>
