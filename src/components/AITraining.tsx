@@ -13,6 +13,7 @@ import {
   Smartphone,
   QrCode,
   RefreshCw,
+  Instagram,
   Eye,
   EyeOff,
   Phone,
@@ -40,6 +41,17 @@ interface WhatsAppAgent {
   updated_at: string;
 }
 
+interface InstagramAgent {
+  id: string;
+  user_id: string;
+  organization_id: string;
+  nomeagente: string;
+  webhook_url: string;
+  insta_prompt: string;
+  created_at: string;
+  updated_at: string;
+}
+
 interface AITrainingProps {
   setActiveSection?: (section: string) => void;
   setSettingsTab?: (tab: string) => void;
@@ -48,19 +60,33 @@ interface AITrainingProps {
 const AITraining: React.FC<AITrainingProps> = ({ setActiveSection, setSettingsTab }) => {
   const { user, profile } = useAuthContext();
   const [agents, setAgents] = useState<WhatsAppAgent[]>([]);
+  const [instagramAgents, setInstagramAgents] = useState<InstagramAgent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'whatsapp' | 'instagram'>('whatsapp');
   const [showAgentModal, setShowAgentModal] = useState(false);
   const [editingAgent, setEditingAgent] = useState<WhatsAppAgent | null>(null);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showQRModal, setShowQRModal] = useState(false);
+  const [showNewAgentModal, setShowNewAgentModal] = useState(false);
+  const [newAgentPlatform, setNewAgentPlatform] = useState<'whatsapp' | 'instagram'>('whatsapp');
+  
+  // Estados para criação de agente Instagram
+  const [showNewInstagramAgentModal, setShowNewInstagramAgentModal] = useState(false);
+  const [newInstagramAgentData, setNewInstagramAgentData] = useState({
+    nomeagente: '',
+    webhook_url: '',
+    insta_prompt: 'Você é um assistente virtual prestativo para Instagram. Responda sempre de forma clara, objetiva e amigável. Ajude o cliente com suas dúvidas e necessidades da melhor forma possível.'
+  });
+  const [savingInstagramAgent, setSavingInstagramAgent] = useState(false);
+  
   const [savingAgent, setSavingAgent] = useState(false);
   const [testingConnection, setTestingConnection] = useState(false);
   const [generatingQR, setGeneratingQR] = useState(false);
-  const [showQRModal, setShowQRModal] = useState(false);
   const [qrCodeImage, setQrCodeImage] = useState<string>('');
   const [showToken, setShowToken] = useState(false);
   const [currentStep, setCurrentStep] = useState<'credentials' | 'connecting' | 'connected'>('credentials');
-  const [showEditModal, setShowEditModal] = useState(false);
   const [editingAgentData, setEditingAgentData] = useState<WhatsAppAgent | null>(null);
   const [editForm, setEditForm] = useState({
     nomeagente: '',
@@ -70,7 +96,19 @@ const AITraining: React.FC<AITrainingProps> = ({ setActiveSection, setSettingsTa
     is_ai_active: true
   });
   const [savingEdit, setSavingEdit] = useState(false);
+  
+  // Estados para edição de agente Instagram
+  const [showEditInstagramModal, setShowEditInstagramModal] = useState(false);
+  const [editingInstagramAgent, setEditingInstagramAgent] = useState<InstagramAgent | null>(null);
+  const [editInstagramAgentData, setEditInstagramAgentData] = useState({
+    nomeagente: '',
+    webhook_url: '',
+    insta_prompt: ''
+  });
+  const [savingInstagramEdit, setSavingInstagramEdit] = useState(false);
   const [showPromptEditor, setShowPromptEditor] = useState(false);
+  const [loadingInstagramAgents, setLoadingInstagramAgents] = useState(false);
+  const [instagramError, setInstagramError] = useState<string | null>(null);
 
   // Form para novo agente - FLUXO Z-API PRIMEIRO
   const [agentForm, setAgentForm] = useState({
@@ -123,6 +161,7 @@ const AITraining: React.FC<AITrainingProps> = ({ setActiveSection, setSettingsTa
   useEffect(() => {
     if (user?.id && profile?.organization_id) {
       loadAgents();
+      loadInstagramAgents();
     }
   }, [user?.id, profile?.organization_id]);
 
@@ -158,6 +197,85 @@ const AITraining: React.FC<AITrainingProps> = ({ setActiveSection, setSettingsTa
     } finally {
       setLoading(false);
     }
+  };
+
+  // Função para carregar agentes do Instagram
+  const loadInstagramAgents = async () => {
+    if (!profile?.organization_id) return;
+    
+    try {
+      setLoadingInstagramAgents(true);
+      setInstagramError(null);
+      console.log('🔍 Carregando agentes do Instagram...');
+      
+      const { data: agents, error } = await supabase
+        .from('IndInsta')
+        .select('id, user_id, organization_id, webhook_url, nomeagente, insta_prompt, created_at, updated_at')
+        .eq('user_id', user?.id)
+        .eq('organization_id', profile.organization_id)
+        .order('created_at', { ascending: false });
+      
+      if (error) {
+        console.error('❌ Erro ao carregar agentes do Instagram:', error);
+        setInstagramError(error.message);
+        return;
+      }
+      
+      console.log('✅ Agentes do Instagram encontrados:', agents?.length || 0);
+      setInstagramAgents(agents || []);
+    } catch (err) {
+      console.error('❌ Erro ao carregar agentes do Instagram:', err);
+      setInstagramError(err instanceof Error ? err.message : 'Erro desconhecido');
+    } finally {
+      setLoadingInstagramAgents(false);
+    }
+  };
+
+  // Função para abrir modal de novo agente
+  const handleCreateNewAgent = (platform: 'whatsapp' | 'instagram') => {
+    setNewAgentPlatform(platform);
+    setShowNewAgentModal(true);
+  };
+
+  // Função para deletar agente Instagram
+  const handleDeleteInstagramAgent = async (agentId: string) => {
+    if (!window.confirm('Tem certeza que deseja deletar este agente Instagram?')) {
+      return;
+    }
+
+    try {
+      console.log('🗑️ Deletando agente Instagram:', agentId);
+      
+      const { error } = await supabase
+        .from('IndInsta')
+        .delete()
+        .eq('id', agentId)
+        .eq('user_id', user?.id);
+
+      if (error) {
+        console.error('❌ Erro ao deletar agente Instagram:', error);
+        throw error;
+      }
+
+      console.log('✅ Agente Instagram deletado com sucesso');
+      setSuccess('Agente Instagram deletado com sucesso!');
+      setTimeout(() => setSuccess(null), 3000);
+      
+      // Recarregar lista
+      await loadInstagramAgents();
+    } catch (err) {
+      console.error('❌ Erro ao deletar agente Instagram:', err);
+      setError(err instanceof Error ? err.message : 'Erro ao deletar agente Instagram');
+    }
+  };
+
+  // Função para editar agente Instagram
+  const handleEditInstagramAgent = (agent: any) => {
+    setEditingAgent({
+      ...agent,
+      platform: 'instagram'
+    });
+    setShowEditModal(true);
   };
 
   // PASSO 1: Testar conexão com credenciais Z-API
@@ -535,6 +653,115 @@ const AITraining: React.FC<AITrainingProps> = ({ setActiveSection, setSettingsTa
     }
   };
 
+  // Função para criar novo agente Instagram
+  const createInstagramAgent = async () => {
+    if (!profile?.id || !profile?.organization_id) {
+      setError('Perfil não encontrado');
+      return;
+    }
+
+    if (!newInstagramAgentData.nomeagente.trim() || !newInstagramAgentData.webhook_url.trim()) {
+      setError('Nome do agente e URL do webhook são obrigatórios');
+      return;
+    }
+
+    try {
+      setSavingInstagramAgent(true);
+      setError(null);
+      setSuccess(null);
+
+      console.log('💾 Criando agente do Instagram...');
+
+      const agentData = {
+        user_id: user?.id,
+        organization_id: profile.organization_id,
+        nomeagente: newInstagramAgentData.nomeagente.trim(),
+        webhook_url: newInstagramAgentData.webhook_url.trim(),
+        insta_prompt: newInstagramAgentData.insta_prompt.trim(),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+
+      const { data: savedAgent, error: saveError } = await supabase
+        .from('IndInsta')
+        .insert(agentData)
+        .select()
+        .single();
+
+      if (saveError) {
+        console.error('❌ Erro ao criar agente do Instagram:', saveError);
+        throw saveError;
+      }
+
+      console.log('✅ Agente do Instagram criado com sucesso:', savedAgent);
+      setSuccess('Agente do Instagram criado com sucesso!');
+      setTimeout(() => setSuccess(null), 3000);
+
+      // Limpar formulário e fechar modal
+      setNewInstagramAgentData({
+        nomeagente: '',
+        webhook_url: '',
+        insta_prompt: 'Você é um assistente virtual prestativo para Instagram. Responda sempre de forma clara, objetiva e amigável. Ajude o cliente com suas dúvidas e necessidades da melhor forma possível.'
+      });
+      setShowNewInstagramAgentModal(false);
+
+      // Recarregar lista de agentes
+      await loadInstagramAgents();
+
+    } catch (err) {
+      console.error('❌ Erro ao criar agente do Instagram:', err);
+      setError(err instanceof Error ? err.message : 'Erro ao criar agente do Instagram');
+    } finally {
+      setSavingInstagramAgent(false);
+    }
+  };
+
+  // Função para salvar edições do agente Instagram
+  const saveInstagramAgentEdit = async () => {
+    if (!editingInstagramAgent) return;
+
+    try {
+      setSavingInstagramEdit(true);
+      setError(null);
+      setSuccess(null);
+
+      if (!editInstagramAgentData.nomeagente.trim() || !editInstagramAgentData.webhook_url.trim()) {
+        throw new Error('Nome do agente e URL do webhook são obrigatórios');
+      }
+
+      console.log('💾 Salvando edições do agente Instagram:', editingInstagramAgent.id);
+
+      const { error: updateError } = await supabase
+        .from('IndInsta')
+        .update({
+          nomeagente: editInstagramAgentData.nomeagente.trim(),
+          webhook_url: editInstagramAgentData.webhook_url.trim(),
+          insta_prompt: editInstagramAgentData.insta_prompt.trim(),
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', editingInstagramAgent.id)
+        .eq('organization_id', profile?.organization_id);
+
+      if (updateError) {
+        console.error('❌ Erro ao atualizar agente Instagram:', updateError);
+        throw updateError;
+      }
+
+      console.log('✅ Agente Instagram atualizado com sucesso');
+      setSuccess('Agente Instagram atualizado com sucesso!');
+      setTimeout(() => setSuccess(null), 3000);
+      
+      setShowEditInstagramModal(false);
+      await loadInstagramAgents();
+
+    } catch (err) {
+      console.error('❌ Erro ao salvar edições do Instagram:', err);
+      setError(err instanceof Error ? err.message : 'Erro ao salvar edições');
+    } finally {
+      setSavingInstagramEdit(false);
+    }
+  };
+
   // Função para obter o nome do modelo de IA
   const getAIModelName = (modelId: string | null): string => {
     if (!modelId) return 'GPT-4o';
@@ -574,6 +801,144 @@ const AITraining: React.FC<AITrainingProps> = ({ setActiveSection, setSettingsTa
           Novo Agente
         </button>
       </div>
+
+      {/* Instagram Tab Content */}
+      {activeTab === 'instagram' && (
+        <div className="space-y-6">
+          {/* Header com botão criar */}
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Agentes Instagram</h2>
+              <p className="text-gray-600 dark:text-gray-400">Gerencie seus agentes de IA para Instagram</p>
+            </div>
+            <button
+              onClick={() => handleCreateNewAgent('instagram')}
+              className="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:from-purple-600 hover:to-pink-600 transition-colors"
+            >
+              <Plus className="w-5 h-5" />
+              <span>Criar Novo Agente Instagram</span>
+            </button>
+          </div>
+
+          {/* Loading state */}
+          {loadingInstagramAgents ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-8 h-8 animate-spin text-purple-600" />
+              <span className="ml-2 text-gray-600 dark:text-gray-400">Carregando agentes Instagram...</span>
+            </div>
+          ) : instagramError ? (
+            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+              <div className="flex items-center space-x-2">
+                <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400" />
+                <p className="text-red-700 dark:text-red-300">{instagramError}</p>
+              </div>
+            </div>
+          ) : instagramAgents.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {instagramAgents.map((agent) => (
+                <div
+                  key={agent.id}
+                  className="bg-gradient-to-br from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 border border-purple-200 dark:border-purple-800 rounded-xl p-6 hover:shadow-lg transition-all"
+                >
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-12 h-12 bg-gradient-to-r from-purple-500 to-pink-500 rounded-xl flex items-center justify-center">
+                        <Instagram className="w-6 h-6 text-white" />
+                      </div>
+                      <div>
+                        <h3 className="font-semibold text-purple-900 dark:text-purple-100">
+                          {agent.nomeagente || 'Agente Instagram'}
+                        </h3>
+                        <div className="flex items-center space-x-1">
+                          <div className="w-2 h-2 bg-purple-500 rounded-full animate-pulse"></div>
+                          <span className="text-xs text-purple-700 dark:text-purple-300 font-medium">
+                            Instagram
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex space-x-1">
+                      <button
+                        onClick={() => {
+                          setEditingAgent(agent);
+                          setShowEditModal(true);
+                        }}
+                        className="p-2 text-purple-600 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-900/30 rounded-lg transition-colors"
+                        title="Editar agente"
+                      >
+                        <Edit className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteInstagramAgent(agent.id)}
+                        className="p-2 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-lg transition-colors"
+                        title="Deletar agente"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-3">
+                    {/* Webhook URL */}
+                    <div className="bg-white dark:bg-gray-800 rounded-lg p-3 border border-purple-100 dark:border-purple-800">
+                      <div className="flex items-center space-x-2 mb-1">
+                        <ExternalLink className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                        <span className="text-xs font-medium text-purple-800 dark:text-purple-300">Webhook URL</span>
+                      </div>
+                      <p className="text-sm font-mono text-gray-900 dark:text-white truncate">
+                        {agent.webhook_url || 'Não configurado'}
+                      </p>
+                    </div>
+                    
+                    {/* Prompt Preview */}
+                    <div className="bg-white dark:bg-gray-800 rounded-lg p-3 border border-purple-100 dark:border-purple-800">
+                      <div className="flex items-center space-x-2 mb-1">
+                        <Bot className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                        <span className="text-xs font-medium text-purple-800 dark:text-purple-300">Prompt da IA</span>
+                      </div>
+                      <p className="text-sm text-gray-700 dark:text-gray-300 line-clamp-2">
+                        {agent.insta_prompt || 'Prompt não configurado'}
+                      </p>
+                    </div>
+                    
+                    {/* Data de criação */}
+                    <div className="text-xs text-purple-600 dark:text-purple-400 text-center">
+                      Criado em {new Date(agent.created_at).toLocaleDateString('pt-BR')}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-12">
+              <Instagram className="w-16 h-16 text-purple-300 dark:text-purple-600 mx-auto mb-4" />
+              <h3 className="text-xl font-medium text-gray-900 dark:text-white mb-2">
+                Nenhum agente Instagram criado
+              </h3>
+              <p className="text-gray-500 dark:text-gray-400 mb-6">
+                Crie seu primeiro agente de IA para Instagram e comece a automatizar o atendimento
+              </p>
+              <button
+                onClick={() => setShowNewAgentModal(true)}
+                className="flex items-center space-x-2 px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:from-purple-600 hover:to-pink-600 transition-colors mx-auto"
+              >
+                <Plus className="w-5 h-5" />
+                <span>Criar Primeiro Agente Instagram</span>
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+      
+      {activeTab === 'instagram' && (
+        <button 
+          onClick={() => setShowNewAgentModal(true)}
+          className="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:from-purple-600 hover:to-pink-600 transition-colors"
+        >
+          <Plus className="w-5 h-5" />
+          <span>Criar Novo Agente Instagram</span>
+        </button>
+      )}
 
       {/* Mensagens de feedback */}
       {error && (
@@ -963,6 +1328,181 @@ const AITraining: React.FC<AITrainingProps> = ({ setActiveSection, setSettingsTa
                   </button>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Novo Agente Instagram */}
+      {showNewInstagramAgentModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-semibold text-gray-900 dark:text-white flex items-center space-x-2">
+                <Instagram className="w-6 h-6 text-purple-500" />
+                <span>Novo Agente Instagram</span>
+              </h3>
+              <button
+                onClick={() => setShowNewInstagramAgentModal(false)}
+                className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="space-y-6">
+              {/* Nome do Agente */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Nome do Agente *
+                </label>
+                <input
+                  type="text"
+                  value={newInstagramAgentData.nomeagente}
+                  onChange={(e) => setNewInstagramAgentData(prev => ({ ...prev, nomeagente: e.target.value }))}
+                  placeholder="Ex: Atendente Instagram"
+                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
+                />
+              </div>
+
+              {/* URL do Webhook */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  URL do Webhook *
+                </label>
+                <input
+                  type="url"
+                  value={newInstagramAgentData.webhook_url}
+                  onChange={(e) => setNewInstagramAgentData(prev => ({ ...prev, webhook_url: e.target.value }))}
+                  placeholder="https://seu-servidor.com/webhook/instagram"
+                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
+                />
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  URL onde o Instagram enviará as mensagens recebidas
+                </p>
+              </div>
+
+              {/* Prompt da IA */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Prompt da IA
+                </label>
+                <textarea
+                  value={newInstagramAgentData.insta_prompt}
+                  onChange={(e) => setNewInstagramAgentData(prev => ({ ...prev, insta_prompt: e.target.value }))}
+                  rows={6}
+                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent resize-none bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 font-mono"
+                  placeholder="Você é um assistente virtual prestativo para Instagram. Responda sempre de forma clara, objetiva e amigável..."
+                />
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  Instruções que definem como a IA deve se comportar no Instagram
+                </p>
+              </div>
+            </div>
+
+            <div className="flex justify-between mt-8 pt-6 border-t border-gray-200 dark:border-gray-700">
+              <button
+                onClick={() => setShowNewInstagramAgentModal(false)}
+                className="px-6 py-3 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={createInstagramAgent}
+                disabled={savingInstagramAgent || !newInstagramAgentData.nomeagente.trim() || !newInstagramAgentData.webhook_url.trim()}
+                className="flex items-center space-x-2 px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:from-purple-600 hover:to-pink-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {savingInstagramAgent ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <Instagram className="w-5 h-5" />
+                )}
+                <span>{savingInstagramAgent ? 'Criando...' : 'Criar Agente Instagram'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Edição Instagram */}
+      {showEditInstagramModal && editingInstagramAgent && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-gray-800 rounded-xl p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-semibold text-gray-900 dark:text-white flex items-center space-x-2">
+                <Instagram className="w-6 h-6 text-purple-500" />
+                <span>Editar Agente Instagram</span>
+              </h3>
+              <button
+                onClick={() => setShowEditInstagramModal(false)}
+                className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="space-y-6">
+              {/* Nome do Agente */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Nome do Agente *
+                </label>
+                <input
+                  type="text"
+                  value={editInstagramAgentData.nomeagente}
+                  onChange={(e) => setEditInstagramAgentData(prev => ({ ...prev, nomeagente: e.target.value }))}
+                  placeholder="Ex: Atendente Instagram"
+                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
+                />
+              </div>
+
+              {/* URL do Webhook */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  URL do Webhook *
+                </label>
+                <input
+                  type="url"
+                  value={editInstagramAgentData.webhook_url}
+                  onChange={(e) => setEditInstagramAgentData(prev => ({ ...prev, webhook_url: e.target.value }))}
+                  placeholder="https://seu-servidor.com/webhook/instagram"
+                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
+                />
+              </div>
+
+              {/* Prompt da IA */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Prompt da IA
+                </label>
+                <textarea
+                  value={editInstagramAgentData.insta_prompt}
+                  onChange={(e) => setEditInstagramAgentData(prev => ({ ...prev, insta_prompt: e.target.value }))}
+                  rows={6}
+                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent resize-none bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 font-mono"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-between mt-8 pt-6 border-t border-gray-200 dark:border-gray-700">
+              <button
+                onClick={() => setShowEditInstagramModal(false)}
+                className="px-6 py-3 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={saveInstagramAgentEdit}
+                disabled={savingInstagramEdit || !editInstagramAgentData.nomeagente.trim() || !editInstagramAgentData.webhook_url.trim()}
+                className="flex items-center space-x-2 px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-lg hover:from-purple-600 hover:to-pink-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {savingInstagramEdit ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <Instagram className="w-5 h-5" />
+                )}
+                <span>{savingInstagramEdit ? 'Salvando...' : 'Salvar Alterações'}</span>
+              </button>
             </div>
           </div>
         </div>

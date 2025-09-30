@@ -11,6 +11,8 @@ interface Pedido {
   rua?: string;
   bairro?: string;
   numero?: string;
+  agente_nome?: string;
+  nome_cliente?: string;
 }
 
 interface OrderReceiptTemplateProps {
@@ -87,7 +89,7 @@ const OrderReceiptTemplate: React.FC<OrderReceiptTemplateProps> = ({ pedido, tim
           fontWeight: 'bold',
           margin: '0 0 4px 0'
         }}>
-          ATENDOS IA
+          {pedido.agente_nome || 'AGENTE NÃO INFORMADO'}
         </h1>
         <p style={{
           fontSize: '10px',
@@ -108,6 +110,17 @@ const OrderReceiptTemplate: React.FC<OrderReceiptTemplateProps> = ({ pedido, tim
           <strong>Pedido #:</strong>
           <span>{pedido.pedido_id}</span>
         </div>
+        
+        {pedido.nome_cliente && (
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            marginBottom: '4px'
+          }}>
+            <strong>Cliente:</strong>
+            <span>{pedido.nome_cliente}</span>
+          </div>
+        )}
         
         <div style={{
           display: 'flex',
@@ -159,7 +172,8 @@ const OrderReceiptTemplate: React.FC<OrderReceiptTemplateProps> = ({ pedido, tim
           padding: '4px',
           backgroundColor: '#f5f5f5',
           borderRadius: '4px',
-          fontSize: '11px'
+          fontSize: '13px',
+          fontWeight: 'bold'
         }}>
           {pedido.resumo}
         </p>
